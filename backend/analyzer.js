@@ -1478,6 +1478,42 @@ function buildSilenceDirection(factual) {
   return `silent creator reel with non-verbal presence and no speaking`;
 }
 
+function safePromptPart(value, label="prompt_part") {
+  if(typeof value==="string") return value;
+  console.warn("[prompt assembly warning]");
+  console.warn(JSON.stringify({
+    label,
+    reason:value==null ? "undefined_or_null_replaced" : "non_string_replaced",
+    receivedType:value==null ? String(value) : typeof value,
+  },null,2));
+  return "";
+}
+
+function resolveSilenceDirection(factual) {
+  const audioType=cleanFact(factual?.audio_type).toLowerCase()||"none";
+  let value="";
+  if(audioType==="none") {
+    try {
+      value=safePromptPart(buildSilenceDirection(factual),"silenceDirection");
+    } catch(error) {
+      console.warn("[prompt assembly warning]");
+      console.warn(JSON.stringify({
+        label:"silenceDirection",
+        reason:"builder_failed_replaced",
+        error:error?.message||String(error),
+      },null,2));
+      value="";
+    }
+  }
+  console.log("[silence direction]");
+  console.log(JSON.stringify({
+    applied:Boolean(value),
+    audioType,
+    value,
+  },null,2));
+  return value;
+}
+
 function buildActionAbstraction(factual) {
   const contentType=cleanFact(factual?.content_type).toLowerCase();
   const reelType=cleanFact(factual?.reel_type).toLowerCase();
@@ -1485,7 +1521,7 @@ function buildActionAbstraction(factual) {
   const speechReliable=reliableSpeechPresent(factual);
   const creatorPerformance=deriveCreatorPerformanceMode(factual);
   const mic=microphoneDetected(factual);
-  const silenceDirection=buildSilenceDirection(factual);
+  const silenceDirection=resolveSilenceDirection(factual);
   const speechLanguage=cleanFact(factual?.speech_language);
   const dialogueSummary=cleanFact(factual?.dialogue_summary)||cleanFact(factual?.spoken_topic);
   const originalMotion=[
@@ -1599,7 +1635,7 @@ function buildShotPlan(factual, cameraGrammar, microMotion) {
   const creatorPerformance=deriveCreatorPerformanceMode(factual);
   const speechReliable=reliableSpeechPresent(factual);
   const mic=microphoneDetected(factual);
-  const silenceDirection=buildSilenceDirection(factual);
+  const silenceDirection=resolveSilenceDirection(factual);
   const subject=cleanFact(factual?.subjects)||cleanFact(factual?.primary_object)||cleanFact(factual?.hero_element)||cleanFact(factual?.product_identity)||cleanFact(factual?.food_focus)||"visible subject or object";
   const environment=cleanFact(factual?.environment)||cleanFact(factual?.surfaces)||"visible environment";
   const prioritizedOpening=hasProductPriority ? creatorProductOpening(factual) : "";
@@ -1658,6 +1694,7 @@ function buildDirectorBrief(factual, cameraGrammar, microMotion, shotPlan) {
   const speechReliable=reliableSpeechPresent(factual);
   const creatorPerformance=deriveCreatorPerformanceMode(factual);
   const mic=microphoneDetected(factual);
+  const silenceDirection=resolveSilenceDirection(factual);
   const speechLanguage=cleanFact(factual?.speech_language);
   const spokenTopic=cleanFact(factual?.spoken_topic);
   const audioType=cleanFact(factual?.audio_type)||"none";
@@ -1987,7 +2024,14 @@ function compactJson(value, maxChars=900) {
     }
     return String(input);
   };
-  const json=JSON.stringify(prune(value));
+  const json=JSON.stringify(prune(value))||"";
+  if(!json&&value!==""&&value!=null) {
+    console.warn("[prompt assembly warning]");
+    console.warn(JSON.stringify({
+      label:"compactJson",
+      reason:"json_stringify_empty_replaced",
+    },null,2));
+  }
   return json.length>maxChars ? `${json.slice(0,maxChars-3)}...` : json;
 }
 
@@ -2095,7 +2139,7 @@ DIRECTOR_BRIEF:
 ${compactJson(brief,900)}
 
 AUDIO_GUIDANCE:
-${audioPromptGuidance||"none"}
+${safePromptPart(audioPromptGuidance,"audioPromptGuidance")||"none"}
 
 DIRECTOR_PROMPT:
 ${compactJson(compactDirector,500)}
@@ -2110,7 +2154,7 @@ COMPACT_CONTEXT:
 ${compactJson(minimalContext,550)}
 
 SPEECH_LANGUAGE:
-${speechLanguageSection}
+${safePromptPart(speechLanguageSection,"speechLanguageSection")||"none"}
 
 RULES:
 - Build the prompt from PROMPT_SLOTS in order.
@@ -2121,6 +2165,15 @@ RULES:
 - Use direct cinematic phrases: camera frames, subject moves, light shapes, focus shifts, motion unfolds.
 - No invented objects, dialogue, camera movement, clothing, location, or actions.
 - No ARRI Alexa, spherical 50mm lens, film-grade color, teal-orange grade, creamy bokeh, ultra-realistic commercial aesthetic, masterpiece, award-winning.`;
+  if(/\bundefined\b/.test(prompt)) {
+    console.warn("[prompt assembly warning]");
+    console.warn(JSON.stringify({
+      label:"stage2Prompt",
+      reason:"literal_undefined_removed",
+      platform:field,
+    },null,2));
+    prompt=prompt.replace(/\bundefined\b/g,"");
+  }
   if(prompt.length>4000) {
     prompt=prompt
       .replace(/\nCOMPACT_CONTEXT:\n[\s\S]*?\n\nSPEECH_LANGUAGE:/,"\nCOMPACT_CONTEXT:\n{}\n\nSPEECH_LANGUAGE:")
@@ -2244,7 +2297,7 @@ function stripSpeechForSilentPrompt(prompt) {
 }
 
 function applySilenceDirectionToPrompt(prompt, factual) {
-  const silenceDirection=buildSilenceDirection(factual);
+  const silenceDirection=resolveSilenceDirection(factual);
   if(!silenceDirection||reliableSpeechPresent(factual)) return prompt;
   let text=stripSpeechForSilentPrompt(prompt);
   const firstSentence=splitPromptSentences(text)[0]||"";
@@ -3869,7 +3922,16 @@ Return ONLY valid JSON: {"${field}":"${targetWords}."}`;
     targetWords,
     legacyLengthEstimate,
   });
-  const finalPrompt=slotOnlyMode ? slotOnlyPrompt : compactPrompt;
+  let finalPrompt=safePromptPart(slotOnlyMode ? slotOnlyPrompt : compactPrompt,"finalStage2Prompt");
+  if(!finalPrompt) {
+    finalPrompt=`Generate JSON only: {"${field}":"${targetWords}."}`;
+    console.warn("[prompt assembly warning]");
+    console.warn(JSON.stringify({
+      label:"finalStage2Prompt",
+      reason:"empty_prompt_replaced_with_minimal_json_request",
+      platform:field,
+    },null,2));
+  }
   const assemblyStatus=inspectStage2Assembly(finalPrompt);
   console.log("[stage2 active modules]");
   console.log(JSON.stringify({
