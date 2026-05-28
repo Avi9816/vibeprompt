@@ -1452,6 +1452,32 @@ function deriveCreatorPerformanceMode(factual) {
   return performance;
 }
 
+function buildSilenceDirection(factual) {
+  const audioType=cleanFact(factual?.audio_type).toLowerCase()||"none";
+  if(audioType!=="none") return "";
+  const reelType=cleanFact(factual?.reel_type).toLowerCase();
+  const creator=creatorSubjectLabel(factual);
+  const visualText=[
+    cleanFact(factual?.reel_energy),
+    cleanFact(factual?.performance_style),
+    cleanFact(factual?.social_aesthetic),
+    cleanFact(factual?.motion_style),
+    cleanFact(factual?.pose_action),
+    cleanFact(factual?.clothing_top),
+    cleanFact(factual?.clothing_bottom),
+  ].join(" ").toLowerCase();
+  if(/\boutfit|fashion|style|clothing|pose|posing|beauty|mirror|look\b/.test(visualText)||/fashion|beauty|lifestyle/.test(reelType)) {
+    return `silent outfit-check reel with ${creator} using relaxed visual posing and no speaking`;
+  }
+  if(/\bdance|fitness|sport|movement|rhythm\b/.test(visualText)||/dance|fitness|sports/.test(reelType)) {
+    return `visual-only creator performance with expressive movement and no dialogue`;
+  }
+  if(/\bproduct|unbox|showcase|package\b/.test(visualText)||/product/.test(reelType)) {
+    return "silent product-focused reel with visual presentation and no speaking";
+  }
+  return `silent creator reel with non-verbal presence and no speaking`;
+}
+
 function buildActionAbstraction(factual) {
   const contentType=cleanFact(factual?.content_type).toLowerCase();
   const reelType=cleanFact(factual?.reel_type).toLowerCase();
@@ -1459,6 +1485,7 @@ function buildActionAbstraction(factual) {
   const speechReliable=reliableSpeechPresent(factual);
   const creatorPerformance=deriveCreatorPerformanceMode(factual);
   const mic=microphoneDetected(factual);
+  const silenceDirection=buildSilenceDirection(factual);
   const speechLanguage=cleanFact(factual?.speech_language);
   const dialogueSummary=cleanFact(factual?.dialogue_summary)||cleanFact(factual?.spoken_topic);
   const originalMotion=[
@@ -1470,6 +1497,20 @@ function buildActionAbstraction(factual) {
   const motionText=originalMotion.toLowerCase();
   let primaryAction=cleanFact(factual?.subject_motion)||cleanFact(factual?.visible_motion_cues)||cleanFact(factual?.pose_action)||"composed stillness holds the frame";
   let interaction="";
+  if(!speechReliable&&silenceDirection) {
+    primaryAction=silenceDirection;
+    interaction="non-verbal creator presence";
+    const result={
+      primary_action_description:primaryAction,
+      interaction_description:interaction,
+    };
+    console.log("[action abstraction]");
+    console.log(JSON.stringify({
+      originalMotion,
+      abstractedAction:result,
+    },null,2));
+    return result;
+  }
   if(speechReliable) {
     primaryAction=mic
       ? `${creatorSubjectLabel(factual)} speaking into the studio microphone while addressing the viewer directly`
@@ -1558,6 +1599,7 @@ function buildShotPlan(factual, cameraGrammar, microMotion) {
   const creatorPerformance=deriveCreatorPerformanceMode(factual);
   const speechReliable=reliableSpeechPresent(factual);
   const mic=microphoneDetected(factual);
+  const silenceDirection=buildSilenceDirection(factual);
   const subject=cleanFact(factual?.subjects)||cleanFact(factual?.primary_object)||cleanFact(factual?.hero_element)||cleanFact(factual?.product_identity)||cleanFact(factual?.food_focus)||"visible subject or object";
   const environment=cleanFact(factual?.environment)||cleanFact(factual?.surfaces)||"visible environment";
   const prioritizedOpening=hasProductPriority ? creatorProductOpening(factual) : "";
@@ -1566,7 +1608,7 @@ function buildShotPlan(factual, cameraGrammar, microMotion) {
       ? `${creatorSubjectLabel(factual)} recording a social-media reel with a studio microphone`
       : `${creatorSubjectLabel(factual)} speaking directly to the audience`)
     : "";
-  const openingVisual=speechOpening||prioritizedOpening||[subject,environment].filter(usableFact).join(" in ")||subject;
+  const openingVisual=speechOpening||silenceDirection||prioritizedOpening||[subject,environment].filter(usableFact).join(" in ")||subject;
   const actionAbstraction=buildActionAbstraction(factual);
   const staticPortrait=isStaticPortraitWithoutMotion(factual)&&!speechReliable;
   const primaryAction=staticPortrait ? "" : (cleanFact(actionAbstraction.primary_action_description)||cleanFact(factual?.subject_motion)||cleanFact(factual?.visible_motion_cues)||cleanFact(factual?.pose_action)||"composed stillness holds the frame");
@@ -1578,7 +1620,7 @@ function buildShotPlan(factual, cameraGrammar, microMotion) {
   const cameraBehavior=cameraStatic
     ? (speechReliable
       ? "Close vertical portrait framing keeps attention on expression and speech delivery"
-      : "Static camera with locked-off framing")
+      : "Close vertical social-media framing with subtle phone-camera realism")
     : cleanFact(cameraGrammar?.cameraMotion)||`Camera follows ${rawCamera}`;
   const environmentMotion=cleanFact(factual?.environmental_motion);
   const environmentResponse=usableFact(environmentMotion)&&!/^(none|none visible|not visible|not enough evidence|static)$/i.test(environmentMotion)
@@ -1678,7 +1720,7 @@ function buildDirectorBrief(factual, cameraGrammar, microMotion, shotPlan) {
         ? [audioRole||"speaking guidance with background music",dialogue,musicMood].filter(usableFact).join("; ")
         : audioType==="ambient_audio"
           ? [ambientAudio||"ambient audio","no dialogue guidance"].filter(usableFact).join("; ")
-          : "";
+          : silenceDirection;
   const subject=rewriteSlotLanguage(
     (speechReliable ? creatorSubjectLabel(factual) : "")||
     cleanFact(factual?.creator_archetype)||
@@ -1692,6 +1734,7 @@ function buildDirectorBrief(factual, cameraGrammar, microMotion, shotPlan) {
   );
   const scene=cleanFact(semantic)||cleanFact(factual?.reel_type)||cleanFact(factual?.content_type);
   const action=staticPortrait ? "" : rewriteSlotLanguage(
+    (!speechReliable&&silenceDirection ? silenceDirection : "")||
     (speechReliable ? cleanFact(actionAbstraction.primary_action_description) : "")||
     cleanFact(actionAbstraction.primary_action_description)||
     cleanFact(shotPlan?.primary_action)||
@@ -1705,6 +1748,7 @@ function buildDirectorBrief(factual, cameraGrammar, microMotion, shotPlan) {
   const environment=cleanFact(shotPlan?.environment_response)||cleanFact(factual?.environment)||cleanFact(factual?.surfaces);
   const mood=cleanFact(factual?.mood_atmosphere)||cleanFact(factual?.audience_intent);
   const motion=staticPortrait ? "" : [
+    !speechReliable&&silenceDirection ? "non-verbal creator movement without dialogue" : "",
     speechReliable ? "expressive mouth movement, subtle head movement, relaxed blinking, and conversational delivery" : "",
     cleanFact(factual?.subject_motion),
     cleanFact(factual?.visible_motion_cues),
@@ -1809,6 +1853,7 @@ function buildDirectorBrief(factual, cameraGrammar, microMotion, shotPlan) {
     dialogue,
     audio,
     audio_type:audioType,
+    silence_direction:silenceDirection,
     audio_role:audioRole,
     dialogue_summary:dialogueSummary,
     music_mood:musicMood,
@@ -2122,6 +2167,21 @@ function rewriteAsGenerativeVisualLanguage(platform, prompt) {
     .replace(/\bspeech present\b/gi,"creator speaking directly to the audience")
     .replace(/\bdialogue detected\b/gi,"creator addresses the viewer naturally")
     .replace(/\bvisible microphone\b/gi,"studio microphone remains close to the creator")
+    .replace(/\bslender female\b/gi,"fashion creator")
+    .replace(/\baverage build\b/gi,"")
+    .replace(/\bperson indoors\b/gi,"creator indoors")
+    .replace(/\brealistic movements\b/gi,"natural creator movement")
+    .replace(/\bnatural motion\b/gi,"creator-style movement")
+    .replace(/\bcalm ambiance\b/gi,"natural creator presence")
+    .replace(/\bmaterial response\b/gi,"surface detail")
+    .replace(/\bdefine her form\b/gi,"gently light her outfit")
+    .replace(/\brealistic shadow definition\b/gi,"soft natural shadows")
+    .replace(/\brealistic movement subtle\b/gi,"subtle creator movement")
+    .replace(/\bphysically realistic\b/gi,"natural")
+    .replace(/\btexture interaction\b/gi,"visible texture")
+    .replace(/\benvironmental response\b/gi,"background detail")
+    .replace(/\bstatic camera frames\b/gi,"close vertical framing follows")
+    .replace(/\blocked-off cinematic framing\b/gi,"intimate creator-style framing")
     .replace(/\bThe presenter speaks directly to camera\b/gi,"The presenter looks directly into the lens while explaining")
     .replace(/\bThe speaker talks directly to the camera\b/gi,"The speaker looks into the lens while talking")
     .replace(/\bThe framing emphasizes expression\b/gi,"Tight portrait framing holds on confident expression")
@@ -2169,6 +2229,31 @@ function strengthenCreatorPerformanceLanguage(platform, prompt, brief={}, factua
   return normalizePromptSentences(text);
 }
 
+function stripSpeechForSilentPrompt(prompt) {
+  return normalizePromptSentences(prompt)
+    .replace(/\b\w+\s+speaks(?:\s+\w+)?\s+(?:directly to the audience|into the studio microphone)[^.]*\./gi,"")
+    .replace(/\b(?:speaking|talking|explaining|presenter|conversational|direct address|dialogue|addresses the viewer|talks directly)[^.]*/gi,match=>{
+      if(/\b(no speaking|without dialogue|non-verbal|visual-only|silent)\b/i.test(match)) return match;
+      return "";
+    })
+    .replace(/\bwith expressive mouth movement\b/gi,"with expressive facial presence")
+    .replace(/\bwhile explaining\b/gi,"while posing")
+    .replace(/\s+/g," ")
+    .replace(/\s+\./g,".")
+    .trim();
+}
+
+function applySilenceDirectionToPrompt(prompt, factual) {
+  const silenceDirection=buildSilenceDirection(factual);
+  if(!silenceDirection||reliableSpeechPresent(factual)) return prompt;
+  let text=stripSpeechForSilentPrompt(prompt);
+  const firstSentence=splitPromptSentences(text)[0]||"";
+  if(!/\b(silent|no speaking|without dialogue|non-verbal|visual-only)\b/i.test(firstSentence)) {
+    text=`${silenceDirection}. ${text}`;
+  }
+  return normalizePromptSentences(text);
+}
+
 function deduplicatePromptLanguage(prompt) {
   const sentences=splitPromptSentences(prompt);
   const seen=new Set();
@@ -2199,11 +2284,15 @@ function finalPromptPolish(platform, prompt, brief={}, factual={}) {
   const before=String(prompt||"").trim();
   let text=rewriteAsGenerativeVisualLanguage(platform,before);
   text=strengthenCreatorPerformanceLanguage(platform,text,brief,factual);
+  text=applySilenceDirectionToPrompt(text,factual);
   text=deduplicatePromptLanguage(text)
     .replace(/\bsoft warm lighting\b(?:[^.]*\bsoft warm lighting\b)/gi,"soft warm lighting")
     .replace(/\bstatic framing\b(?:[^.]*\bstatic framing\b)/gi,"static framing")
     .replace(/\bnatural breathing\b(?:[^.]*\bnatural breathing\b)/gi,"natural breathing")
     .replace(/\bsubtle gaze adjustments\b(?:[^.]*\bsubtle gaze adjustments\b)/gi,"subtle gaze adjustments")
+    .replace(/\bclose creator-facing framing\b/gi,"close vertical social-media framing")
+    .replace(/\bintimate vertical framing\b/gi,"intimate vertical reel framing")
+    .replace(/\bstatic framing\b/gi,"vertical reel framing")
     .replace(/\bshows|depicts|contains|features|illustrates\b/gi,"presents");
   const limits=platformTargetWordLimit(platform);
   if(wordCount(text)>limits.max) text=trimPromptWords(text,limits.max);
@@ -2243,6 +2332,55 @@ function validateCreatorPerformancePrompt(platform, prompt, brief={}, factual={}
     socialVideoAuthenticityScore,
   },null,2));
   return {speechPrimaryAction,creatorPerformanceDetected,microphonePrioritized,staticCameraReduced,socialVideoAuthenticityScore};
+}
+
+function validateSpeechSuppression(prompt, factual={}) {
+  const audioType=cleanFact(factual?.audio_type).toLowerCase()||"none";
+  const text=String(prompt||"");
+  const riskyPhrases=[];
+  if(audioType==="none") {
+    const matches=text.match(/\b(speaking|talking|explaining|presenter|conversational|direct address|addresses the viewer|dialogue|voice|says)\b/gi)||[];
+    for(const match of matches) {
+      if(!/\b(no speaking|without dialogue|non-verbal|visual-only|silent)\b/i.test(text.slice(Math.max(0,text.toLowerCase().indexOf(match.toLowerCase())-30),text.toLowerCase().indexOf(match.toLowerCase())+60))) {
+        riskyPhrases.push(match.toLowerCase());
+      }
+    }
+  }
+  const conversationalLeakage=[...new Set(riskyPhrases)];
+  const speechSuppressed=audioType!=="none"||conversationalLeakage.length===0;
+  console.log("[speech suppression validation]");
+  console.log(JSON.stringify({
+    audioType,
+    speechSuppressed,
+    conversationalLeakage:conversationalLeakage.length>0,
+    riskyPhrases:conversationalLeakage,
+  },null,2));
+  return {audioType,speechSuppressed,conversationalLeakage,riskyPhrases:conversationalLeakage};
+}
+
+function validateSocialVideoAuthenticity(prompt, factual={}) {
+  const text=String(prompt||"");
+  const lower=text.toLowerCase();
+  const stockPhrases=["adult female","slender female","professional woman","average build","person indoors","stock footage","generic person"];
+  const cinematicPhrases=["cinematic shot","cinematic portrait","calm ambiance","professional atmosphere","locked-off framing","static camera","shallow cinematic composition"];
+  const creatorTerms=(lower.match(/\b(creator|influencer|reel|instagram|tiktok|social-media|outfit-check|beauty creator|fashion creator|lifestyle creator|fitness creator|podcast creator|vertical)\b/g)||[]).length;
+  const stockHits=stockPhrases.filter(p=>lower.includes(p));
+  const cinematicHits=cinematicPhrases.filter(p=>lower.includes(p));
+  const speechRisk=validateSpeechSuppression(text,factual);
+  const staticCameraUsage=/\b(static camera|locked-off framing|locked off framing)\b/i.test(text);
+  const creatorRealismScore=clampQualityScore(Math.min(10,creatorTerms*2+(/young creator|creator|influencer|reel|vertical/i.test(text)?3:0)-stockHits.length*2));
+  const stockFootageRisk=clampQualityScore(stockHits.length*3+cinematicHits.length*2);
+  const speechHallucinationRisk=speechRisk.speechSuppressed ? 0 : 8;
+  const socialVideoEnergy=clampQualityScore(creatorTerms*2+(lower.includes("vertical")?2:0)+(lower.includes("reel")?2:0)-staticCameraUsage*2);
+  console.log("[social video authenticity]");
+  console.log(JSON.stringify({
+    creatorRealismScore,
+    stockFootageRisk,
+    speechHallucinationRisk,
+    socialVideoEnergy,
+    staticCameraUsage,
+  },null,2));
+  return {creatorRealismScore,stockFootageRisk,speechHallucinationRisk,socialVideoEnergy,staticCameraUsage};
 }
 
 function validateFinalPromptCraft(platform, prompt) {
@@ -2826,6 +2964,7 @@ function buildMasterPromptFromBrief(brief) {
   const focusTransition=cleanFact(brief?.focus_transition);
   const cameraIntention=cleanFact(brief?.camera_intention);
   const visualPriorityFlow=cleanFact(brief?.visual_priority_flow);
+  const silenceDirection=cleanFact(brief?.silence_direction);
   const creatorPerformanceMode=cleanFact(brief?.creator_performance_mode);
   const speechDeliveryStyle=cleanFact(brief?.speech_delivery_style);
   const audienceConnection=cleanFact(brief?.audience_connection);
@@ -2838,6 +2977,7 @@ function buildMasterPromptFromBrief(brief) {
   const style=cleanFact(brief?.generation_intent)||"generation-ready cinematic realism";
   const sentences=[
     creatorPerformanceMode ? `${creatorPerformanceMode}.` : "",
+    silenceDirection ? `${silenceDirection}.` : "",
     speechDeliveryStyle ? `${speechDeliveryStyle}.` : "",
     audienceConnection ? `${audienceConnection}.` : "",
     creatorEnergy ? `${creatorEnergy}.` : "",
@@ -3838,6 +3978,7 @@ async function generatePlatformField({field,label,systemPrompt,prompt,dbg}) {
       value=finalPromptPolish(field,value,promptContext.brief||{},promptContext.factual||{});
       validateFinalPromptCraft(field,value);
       validateCreatorPerformancePrompt(field,value,promptContext.brief||{},promptContext.factual||{});
+      validateSocialVideoAuthenticity(value,promptContext.factual||{});
       promptAssemblyContextCache.delete(field);
       if(value.length<20) throw new Error(`${field}: empty or too short`);
       console.log(`[${label} generation ms] ${Date.now()-started}`);
