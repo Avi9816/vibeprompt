@@ -1903,11 +1903,19 @@ function buildShotPlan(factual, cameraGrammar, microMotion) {
   return plan;
 }
 
-function buildDirectorBrief(factual, cameraGrammar, microMotion, shotPlan) {
+function buildDirectorBrief(factual, cameraGrammar, microMotion, shotPlan, stage2Scope={}) {
   const speechPresent=factual?.speech_present===true || String(factual?.speech_present).trim().toLowerCase()==="true";
   const speechConfidence=Math.max(0,Math.min(1,Number(factual?.confidence_speech)||0));
   const speechReliable=reliableSpeechPresent(factual);
   const creatorPerformance=deriveCreatorPerformanceMode(factual);
+  const creatorIntent=stage2Scope.creatorIntent||deriveCreatorIntentIntelligence(factual)||{};
+  const socialCameraIntelligence=stage2Scope.socialCameraIntelligence||safeSocialCameraIntelligence(factual)||{};
+  const socialCamera=stage2Scope.socialCamera||socialCameraIntelligence||{};
+  console.log("[social camera scope trace]");
+  console.log(JSON.stringify({
+    functionName:"director brief",
+    defined:Boolean(socialCamera),
+  },null,2));
   const mic=microphoneDetected(factual);
   const silenceDirection=resolveSilenceDirection(factual);
   const speechLanguage=cleanFact(factual?.speech_language);
@@ -3472,7 +3480,13 @@ function shotPlanOrderForPlatform(platform) {
   return orders[String(platform||"").toLowerCase()]||orders.runway;
 }
 
-function buildPromptSlots(platform, shotPlan, factual) {
+function buildPromptSlots(platform, shotPlan, factual, stage2Scope={}) {
+  const socialCamera=stage2Scope.socialCamera||stage2Scope.socialCameraIntelligence||{};
+  console.log("[social camera scope trace]");
+  console.log(JSON.stringify({
+    functionName:"prompt slot assembly",
+    defined:Boolean(socialCamera),
+  },null,2));
   const slotOrder=shotPlanOrderForPlatform(platform);
   const labels={
     opening_visual:"OPENING_VISUAL",
@@ -3510,7 +3524,13 @@ function buildPromptSlots(platform, shotPlan, factual) {
   };
 }
 
-function buildStage2Context(factual, shotPlan, promptSlots, promptComponents={}, directorBrief=null) {
+function buildStage2Context(factual, shotPlan, promptSlots, promptComponents={}, directorBrief=null, stage2Scope={}) {
+  const socialCamera=stage2Scope.socialCamera||stage2Scope.socialCameraIntelligence||{};
+  console.log("[social camera scope trace]");
+  console.log(JSON.stringify({
+    functionName:"compact context",
+    defined:Boolean(socialCamera),
+  },null,2));
   const compact={
     content_type:cleanFact(factual?.content_type),
     reel_type:cleanFact(factual?.reel_type),
@@ -3545,10 +3565,10 @@ function buildStage2Context(factual, shotPlan, promptSlots, promptComponents={},
     performance_pattern:cleanFact(factual?.performance_pattern),
     creator_confidence:cleanFact(factual?.creator_confidence),
     viewer_hook_style:cleanFact(factual?.viewer_hook_style),
-    camera_style:cleanFact(factual?.camera_style),
-    camera_energy:cleanFact(factual?.camera_energy),
-    camera_relationship:cleanFact(factual?.camera_relationship),
-    viewer_perspective:cleanFact(factual?.viewer_perspective),
+    camera_style:cleanFact(socialCamera.camera_style)||cleanFact(factual?.camera_style),
+    camera_energy:cleanFact(socialCamera.camera_energy)||cleanFact(factual?.camera_energy),
+    camera_relationship:cleanFact(socialCamera.camera_relationship)||cleanFact(factual?.camera_relationship),
+    viewer_perspective:cleanFact(socialCamera.viewer_perspective)||cleanFact(factual?.viewer_perspective),
     temporal_opening:cleanFact(factual?.temporal_opening),
     temporal_progression:cleanFact(factual?.temporal_progression),
     temporal_continuity:cleanFact(factual?.temporal_continuity),
@@ -4044,6 +4064,17 @@ function buildPlatformPrompt(field, factual, stylePreset, instructions, generati
   const p=getPreset(stylePreset||"cinematic");
   const style=[p.label,cleanStyleText(p.grade),cleanStyleText(p.pace),cleanStyleText(p.suffix)].filter(Boolean).join(" | ");
   const isVideoPlatform=field!=="keyframe";
+  const socialCameraIntelligence=isVideoPlatform ? safeSocialCameraIntelligence(factual) : {};
+  const socialCamera=socialCameraIntelligence||{};
+  const creatorIntent=isVideoPlatform ? (deriveCreatorIntentIntelligence(factual)||{}) : {};
+  const stage2Scope={socialCameraIntelligence,socialCamera,creatorIntent};
+  if(isVideoPlatform) {
+    console.log("[social camera scope trace]");
+    console.log(JSON.stringify({
+      functionName:"final assembly",
+      defined:Boolean(socialCamera),
+    },null,2));
+  }
   const platformProfile=getPlatformGenerationProfile(field);
   if(isVideoPlatform) {
     console.log("[platform profile]");
@@ -4127,7 +4158,7 @@ function buildPlatformPrompt(field, factual, stylePreset, instructions, generati
     console.log("[shot plan]");
     console.log(JSON.stringify(shotPlan,null,2));
   }
-  const promptSlots=shotPlan ? buildPromptSlots(field,shotPlan,factual) : null;
+  const promptSlots=shotPlan ? buildPromptSlots(field,shotPlan,factual,stage2Scope) : null;
   if(promptSlots) {
     console.log("[prompt slots]");
     console.log(JSON.stringify({
@@ -4138,7 +4169,7 @@ function buildPlatformPrompt(field, factual, stylePreset, instructions, generati
     console.log("[slot assembly]");
     console.log(JSON.stringify({platform:field,enforced:true},null,2));
   }
-  const directorBrief=isVideoPlatform ? buildDirectorBrief(factual,cameraGrammar,microMotion,shotPlan) : null;
+  const directorBrief=isVideoPlatform ? buildDirectorBrief(factual,cameraGrammar,microMotion,shotPlan,stage2Scope) : null;
   const audioPromptGuidance=isVideoPlatform ? buildAudioPromptGuidance(field,directorBrief) : "";
   if(isVideoPlatform) {
     console.log("[audio prompt integration]");
@@ -4154,7 +4185,7 @@ function buildPlatformPrompt(field, factual, stylePreset, instructions, generati
   console.log(JSON.stringify(briefComponents,null,2));
   const profileAssembly=assemblePromptFromProfile(field,promptProfile,briefComponents);
   const platformWriterOutput=writePlatformStyle(field,promptProfile,briefComponents,profileAssembly,directorBrief);
-  const compactContext=buildStage2Context(factual,shotPlan,promptSlots,{...briefComponents,profile_assembly:profileAssembly,platform_writer:platformWriterOutput},directorBrief);
+  const compactContext=buildStage2Context(factual,shotPlan,promptSlots,{...briefComponents,profile_assembly:profileAssembly,platform_writer:platformWriterOutput},directorBrief,stage2Scope);
   const speechLanguagePromptValue=cleanFact(compactContext.speech_language);
   const speechLanguageSection=speechLanguagePromptValue
     ? JSON.stringify({speech_language:speechLanguagePromptValue})
