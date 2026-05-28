@@ -1,0 +1,86 @@
+{
+  "platform": "Pika",
+  "source": "docs/video/pika_notes.md",
+  "preferred_structure": [
+    "Subject",
+    "Action",
+    "Scene / Environment",
+    "Style",
+    "Camera",
+    "Motion",
+    "Lighting",
+    "Atmosphere / Mood",
+    "Visual Effects / Transformations"
+  ],
+  "emphasis_scores": {
+    "subject": 5,
+    "action": 5,
+    "camera": 4,
+    "motion": 5,
+    "atmosphere": 4,
+    "composition": 3,
+    "temporal": 4,
+    "environment": 3,
+    "style": 5,
+    "effects": 5
+  },
+  "writing_style": {
+    "tone": ["Direct", "Visual", "Creative", "Cinematic", "Stylized"],
+    "sentence_structure": [
+      "Short descriptive phrases",
+      "Modular prompt clauses",
+      "Subject-action focused wording",
+      "Compact cinematic descriptions"
+    ],
+    "preferred_wording": [
+      "Explicit visual descriptors",
+      "Style keywords",
+      "Camera movement terminology",
+      "Motion/effect terminology",
+      "Transformation-focused language"
+    ],
+    "level_of_detail": [
+      "Moderate detail preferred",
+      "Clarity prioritized over long prose",
+      "Visual specificity encouraged",
+      "Compact prompts work well when precise"
+    ]
+  },
+  "recommended_elements": [
+    "Clear subject definition",
+    "Explicit action descriptions",
+    "Strong visual style descriptors",
+    "Motion descriptions",
+    "Camera direction",
+    "Lighting descriptions",
+    "Environmental detail",
+    "Atmospheric detail",
+    "Transformation/effect language",
+    "Emotional visual tone",
+    "Energy/intensity descriptors",
+    "Stylized visual modifiers",
+    "Animated motion emphasis",
+    "Fantasy/surreal visual behavior"
+  ],
+  "avoid": [
+    "Overly long prompts",
+    "Vague descriptions",
+    "Abstract concepts without visual detail",
+    "Contradictory style instructions",
+    "Excessive unrelated styles combined together",
+    "Missing action descriptions",
+    "Generic subject wording",
+    "Unclear motion direction"
+  ],
+  "ideal_length": {
+    "minimum_words": 15,
+    "maximum_words": 120,
+    "notes": [
+      "Short prompts can work effectively if visually specific",
+      "Most examples are concise and style-focused",
+      "The guide prioritizes clarity and visual impact over detailed narrative writing"
+    ]
+  },
+  "example_template": "[subject] [action] in [environment]. [visual style]. [camera behavior]. [motion description]. [lighting]. [atmosphere/effects]. [energy/mood].",
+  "summary": "Pika prefers concise, visually explicit prompts with strong emphasis on subject clarity, action, style direction, motion, and visual effects."
+}

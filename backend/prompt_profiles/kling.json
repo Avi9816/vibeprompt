@@ -1,0 +1,90 @@
+{
+  "platform": "Kling AI",
+  "source": "docs/video/kling_notes.md",
+  "preferred_structure": [
+    "Subject",
+    "Action",
+    "Scene / Environment",
+    "Camera Movement",
+    "Motion Dynamics",
+    "Visual Style",
+    "Lighting",
+    "Atmosphere / Mood",
+    "Composition"
+  ],
+  "emphasis_scores": {
+    "subject": 5,
+    "action": 5,
+    "camera": 5,
+    "motion": 5,
+    "atmosphere": 4,
+    "composition": 4,
+    "temporal": 4,
+    "environment": 4,
+    "lighting": 4,
+    "style": 5,
+    "realism": 5
+  },
+  "writing_style": {
+    "tone": ["Cinematic", "Direct", "Descriptive", "Visual-first", "Motion-focused"],
+    "sentence_structure": [
+      "Compact cinematic statements",
+      "Subject-action phrasing",
+      "Modular visual clauses",
+      "Sequential motion descriptions"
+    ],
+    "preferred_wording": [
+      "Explicit movement terminology",
+      "Camera direction",
+      "Cinematic descriptors",
+      "Realistic motion language",
+      "Environmental detail",
+      "Style keywords"
+    ],
+    "level_of_detail": [
+      "Moderate to high detail",
+      "Clear motion specification strongly encouraged",
+      "Visual precision prioritized",
+      "Concise but specific prompts preferred"
+    ]
+  },
+  "recommended_elements": [
+    "Clear subject identification",
+    "Explicit action descriptions",
+    "Camera movement",
+    "Motion descriptions",
+    "Visual style descriptors",
+    "Lighting descriptions",
+    "Environmental detail",
+    "Atmospheric detail",
+    "Composition/framing guidance",
+    "Emotional visual tone",
+    "Realistic movement emphasis",
+    "High-detail descriptors",
+    "Dynamic action choreography",
+    "Scene continuity",
+    "Stylized cinematic modifiers"
+  ],
+  "avoid": [
+    "Vague prompts",
+    "Ambiguous actions",
+    "Contradictory motion instructions",
+    "Overly abstract descriptions",
+    "Excessively long narrative prompts",
+    "Generic subjects without detail",
+    "Missing camera behavior",
+    "Combining too many unrelated styles",
+    "Unrealistic or unclear motion direction"
+  ],
+  "ideal_length": {
+    "minimum_words": 20,
+    "maximum_words": 150,
+    "notes": [
+      "Short prompts can perform well if visually specific",
+      "Most examples are concise but motion-detailed",
+      "The guide prioritizes clarity, realism, and cinematic motion"
+    ]
+  },
+  "example_template": "[subject] [action] in [environment]. [camera movement]. [motion behavior]. [lighting]. [visual style]. [atmospheric detail]. [composition/framing]. [mood].",
+  "summary": "Kling AI prefers concise cinematic visual direction with strong emphasis on subject clarity, action, camera movement, and realistic motion behavior."
+}

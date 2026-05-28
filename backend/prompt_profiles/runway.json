@@ -1,0 +1,92 @@
+{
+  "platform": "Runway Gen-4",
+  "source": "docs/video/runway_notes.md",
+  "preferred_structure": [
+    "Subject",
+    "Scene / Environment",
+    "Action",
+    "Camera Behavior",
+    "Motion",
+    "Visual Style",
+    "Lighting",
+    "Atmosphere / Mood",
+    "Composition",
+    "Temporal Progression"
+  ],
+  "emphasis_scores": {
+    "subject": 5,
+    "action": 5,
+    "camera": 5,
+    "motion": 5,
+    "atmosphere": 4,
+    "composition": 4,
+    "temporal": 4,
+    "environment": 4,
+    "lighting": 5,
+    "style": 5,
+    "consistency": 5
+  },
+  "writing_style": {
+    "tone": ["Cinematic", "Concise but descriptive", "Visually direct", "Production-oriented"],
+    "sentence_structure": [
+      "Short cinematic statements",
+      "Modular descriptive clauses",
+      "Subject-first phrasing",
+      "Action-driven prompt flow"
+    ],
+    "preferred_wording": [
+      "Explicit visual descriptions",
+      "Concrete physical actions",
+      "Camera terminology",
+      "Cinematic adjectives",
+      "Lighting descriptors",
+      "Texture/material descriptors"
+    ],
+    "level_of_detail": [
+      "Moderate to high detail",
+      "Clear specificity preferred over abstraction",
+      "Visual clarity prioritized",
+      "Consistency instructions strongly encouraged"
+    ]
+  },
+  "recommended_elements": [
+    "Explicit subject descriptions",
+    "Clear action descriptions",
+    "Camera movement",
+    "Motion descriptions",
+    "Lighting descriptions",
+    "Environment detail",
+    "Texture/material descriptions",
+    "Cinematic framing",
+    "Visual style keywords",
+    "Lens/focus descriptions",
+    "Atmospheric detail",
+    "Character consistency guidance",
+    "Scene continuity guidance",
+    "Temporal progression in action",
+    "Controlled pacing language",
+    "Specific emotional tone through visuals"
+  ],
+  "avoid": [
+    "Overly abstract descriptions",
+    "Contradictory visual instructions",
+    "Ambiguous subject references",
+    "Excessively long narrative prose",
+    "Multiple unrelated actions in a single shot",
+    "Unclear camera direction",
+    "Generic prompts lacking visual specificity",
+    "Overloading prompts with too many stylistic concepts simultaneously",
+    "Vague emotional-only prompting without visual grounding"
+  ],
+  "ideal_length": {
+    "minimum_words": 25,
+    "maximum_words": 180,
+    "notes": [
+      "Short prompts can work if visually precise",
+      "Most high-quality examples are concise but detailed",
+      "The guide consistently prioritizes clarity over verbosity"
+    ]
+  },
+  "example_template": "[subject] in [environment]. [subject action]. [camera movement]. [lighting description]. [motion behavior]. [visual style]. [lens/focus description]. [atmosphere]. [composition/framing]. [temporal progression].",
+  "summary": "Runway Gen-4 prefers clear cinematic visual direction with strong emphasis on subject clarity, physical action, camera behavior, lighting, and scene consistency."
+}

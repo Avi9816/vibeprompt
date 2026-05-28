@@ -1,0 +1,17 @@
+{
+  "avgWords": 63,
+  "avgSentences": 5,
+  "cameraFrequency": 3.74,
+  "motionFrequency": 1.78,
+  "lightingFrequency": 2.13,
+  "audioFrequency": 0.04,
+  "dialogueFrequency": 0.01,
+  "atmosphereFrequency": 4.58,
+  "temporalFrequency": 3.12,
+  "commonStructures": [
+    {
+      "structure": "subject-environment opening -> explicit subject action -> simultaneous action -> temporal continuity -> style/mood ending",
+      "count": 100
+    }
+  ]
+}

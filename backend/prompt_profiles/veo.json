@@ -1,0 +1,95 @@
+{
+  "platform": "Veo 3.1",
+  "source": "docs/video/veo_notes.md",
+  "preferred_structure": [
+    "Cinematography",
+    "Subject",
+    "Action",
+    "Context",
+    "Style & Ambiance",
+    "Audio (Dialogue / SFX / Ambient)",
+    "Motion / Transitions",
+    "Emotional Tone"
+  ],
+  "core_formula": "[Cinematography] + [Subject] + [Action] + [Context] + [Style & Ambiance]",
+  "emphasis_scores": {
+    "subject": 5,
+    "action": 5,
+    "camera": 5,
+    "motion": 5,
+    "atmosphere": 5,
+    "composition": 4,
+    "temporal": 5,
+    "environment": 4,
+    "audio": 5,
+    "dialogue": 5,
+    "lighting": 5,
+    "emotion": 4
+  },
+  "writing_style": {
+    "tone": ["Cinematic", "Descriptive", "Directorial", "Technically precise"],
+    "sentence_structure": [
+      "Dense descriptive clauses",
+      "Comma-separated cinematic instructions",
+      "Shot-oriented phrasing",
+      "Sequential timestamp blocks for multi-shot scenes"
+    ],
+    "preferred_wording": [
+      "Professional filmmaking terminology",
+      "Explicit camera language",
+      "Explicit lighting descriptions",
+      "Explicit sound descriptions",
+      "Emotional qualifiers",
+      "Environmental specificity"
+    ],
+    "level_of_detail": [
+      "High detail preferred",
+      "Specificity strongly encouraged",
+      "Multi-layered scene description recommended",
+      "Temporal segmentation encouraged for complex scenes"
+    ]
+  },
+  "recommended_elements": [
+    "Camera movement",
+    "Composition",
+    "Lens / focus language",
+    "Explicit lighting descriptions",
+    "Environmental detail",
+    "Mood / ambiance",
+    "Dialogue in quotation marks",
+    "Explicit SFX descriptions",
+    "Ambient soundscape descriptions",
+    "Emotional descriptors",
+    "Timestamped scene segmentation",
+    "Transition descriptions",
+    "Character consistency via reference images",
+    "Style descriptors",
+    "Motion continuity instructions",
+    "Narrative sequencing"
+  ],
+  "avoid": [
+    "Vague negative prompting",
+    "Under-specified prompts",
+    "Missing cinematic direction",
+    "Missing audio direction",
+    "Generic scene descriptions lacking environment, mood, or lighting",
+    "Unstructured prompting"
+  ],
+  "ideal_length": {
+    "minimum_words": 40,
+    "maximum_words": 250,
+    "notes": [
+      "Simple prompts are typically 40-80 words",
+      "Advanced cinematic prompts and timestamp workflows exceed 150 words",
+      "The guide consistently favors detailed prompts over short prompts"
+    ]
+  },
+  "example_template": "[cinematography]. [subject]. [action]. [environment/context]. [lighting]. [camera movement]. [lens/focus details]. [style and ambiance]. [dialogue in quotes if needed]. [SFX]. [ambient sound]. [emotion/mood].",
+  "timestamp_template": [
+    "[00:00-00:02] [shot description].",
+    "[00:02-00:04] [next shot description].",
+    "[00:04-00:06] [camera movement + action].",
+    "[00:06-00:08] [final cinematic reveal + audio cue]."
+  ],
+  "summary": "Veo 3.1 prefers prompts written like cinematic shot direction rather than simple image descriptions. Detailed camera language, lighting, motion, environmental specificity, sound design, and emotional tone are repeatedly encouraged."
+}

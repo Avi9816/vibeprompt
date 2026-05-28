@@ -1,0 +1,17 @@
+{
+  "avgWords": 50,
+  "avgSentences": 6,
+  "cameraFrequency": 2.74,
+  "motionFrequency": 3.78,
+  "lightingFrequency": 2.13,
+  "audioFrequency": 0.04,
+  "dialogueFrequency": 0.01,
+  "atmosphereFrequency": 5.58,
+  "temporalFrequency": 0.12,
+  "commonStructures": [
+    {
+      "structure": "subject-environment opening -> style/mood ending",
+      "count": 100
+    }
+  ]
+}
