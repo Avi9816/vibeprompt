@@ -9,6 +9,7 @@ const path    = require("path");
 const { analyzeVideoFrames, analyzeImageUrl, analyzeImageBase64, analyzeImageFramesBase64 } = require("./analyzer");
 const { generatePrompts } = require("./promptGenerator");
 const { listPresets }     = require("./presets");
+const { saveQuickBenchmark, generateQuickBenchmarkSummary } = require("../benchmark/benchmark");
 
 const app  = express();
 const PORT = process.env.PORT||3000;
@@ -23,6 +24,20 @@ const ISSUE_TAGS = new Set([
   "inaccurate environment",
   "inaccurate subject",
   "poor audio recreation",
+]);
+const QUICK_BENCHMARK_FAILURES = new Set([
+  "motion too static",
+  "wrong vibe",
+  "generic face",
+  "wrong camera",
+  "weak reel energy",
+  "lighting mismatch",
+  "poor motion continuity",
+  "weak creator vibe",
+  "too cinematic",
+  "inaccurate movement",
+  "inaccurate audio vibe",
+  "other",
 ]);
 
 function ensureFeedbackDir() {
@@ -109,6 +124,24 @@ function analyzePromptFeedback() {
   };
 }
 
+function sanitizeQuickBenchmark(body={}) {
+  const rating=String(body.rating||"").trim().toLowerCase();
+  if(!["bad","okay","good"].includes(rating)) throw new Error("rating must be bad, okay, or good");
+  const mainFailure=String(body.main_failure||"other").trim().toLowerCase();
+  return {
+    timestamp:new Date().toISOString(),
+    category:String(body.category||"uncategorized").trim().toLowerCase()||"uncategorized",
+    master_prompt:String(body.master_prompt||"").trim(),
+    veo_prompt:String(body.veo_prompt||body.platform_prompt||"").trim(),
+    reel_type:String(body.reel_type||"other").trim()||"other",
+    creator_archetype:String(body.creator_archetype||"").trim(),
+    motion_energy:String(body.motion_energy||"").trim(),
+    rating,
+    main_failure:QUICK_BENCHMARK_FAILURES.has(mainFailure)?mainFailure:"other",
+    notes:String(body.notes||"").trim().slice(0,500),
+  };
+}
+
 app.use(cors({origin:(o,cb)=>cb(null,true),methods:["GET","POST","OPTIONS"],allowedHeaders:["Content-Type"]}));
 app.use(express.json({limit:"25mb"}));
 
@@ -163,6 +196,25 @@ app.post("/prompt-feedback",(req,res)=>{
 
 app.get("/prompt-feedback/analytics",(_,res)=>{
   res.json(analyzePromptFeedback());
+});
+
+app.post("/quick-benchmark",(req,res)=>{
+  try{
+    const entry=saveQuickBenchmark(sanitizeQuickBenchmark(req.body||{}));
+    console.log("[quick benchmark]");
+    console.log(JSON.stringify({
+      category:entry.category,
+      rating:entry.rating,
+      main_failure:entry.main_failure,
+    },null,2));
+    res.json({ok:true,entry});
+  }catch(e){
+    res.status(400).json({error:e.message});
+  }
+});
+
+app.get("/quick-benchmark/summary",(_,res)=>{
+  res.json(generateQuickBenchmarkSummary());
 });
 
 app.post("/analyze-image",async(req,res)=>{

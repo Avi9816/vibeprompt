@@ -1,0 +1,15 @@
+[
+  {
+    "timestamp": "2026-05-28T12:14:20.998Z",
+    "category": "talking-head",
+    "master_prompt": "",
+    "veo_prompt": "A static, wide-angle smartphone camera captures an adult, slim male in an outdoor commercial parking lot. Hard, direct sunlight from above and slightly behind the subject casts sharp, distinct shadows, highlighting realistic material response on the asphalt and surrounding environment. The English-speaking presenter engages directly, explaining creative upcycling concepts, with natural breathing, occasional blinking, and subtle posture shifts. Fabric and any loose hair exhibit realistic micro-motion, alongside subtle foliage movement. Primary spoken guidance details \"Thrift store shopping for upcycling into new creations,\" fostering a casual, bright, open, and reflective mood. The shot uses static camera with locked-off observational framing.",
+    "reel_type": "educational_talking_head",
+    "creator_archetype": "",
+    "motion_energy": "none visible",
+    "rating": "bad",
+    "rating_score": 1,
+    "main_failure": "motion too static",
+    "notes": ""
+  }
+]

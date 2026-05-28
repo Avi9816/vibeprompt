@@ -1,0 +1,22 @@
+{
+  "case_id": "beauty_mock_001",
+  "category": "beauty",
+  "original_reel": "mock://beauty-soft-portrait",
+  "original_notes": "Placeholder beauty reel: creator facing camera in soft indoor light with gentle portrait posing.",
+  "platform_tested": "veo",
+  "master_prompt": "Beauty creator in soft indoor lighting, framed in a close portrait shot with calm camera-aware expression and gentle social-media posing.",
+  "platform_prompt": "Soft indoor light shapes a beauty creator's face in a close portrait frame. The subject maintains camera-aware expression while shifting subtly through polished portrait poses. The camera remains steady and intimate, preserving a natural social-media beauty reel feel.",
+  "generated_video": "mock://generated/beauty_mock_001",
+  "scores": {
+    "subject_accuracy": 0,
+    "motion_accuracy": 0,
+    "camera_accuracy": 0,
+    "lighting_accuracy": 0,
+    "audio_vibe_accuracy": 0,
+    "social_media_realism": 0,
+    "overall_similarity": 0
+  },
+  "issues": [],
+  "strengths": [],
+  "final_notes": "Mock case for validating benchmark workflow only."
+}

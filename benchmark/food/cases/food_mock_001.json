@@ -1,0 +1,22 @@
+{
+  "case_id": "food_mock_001",
+  "category": "food",
+  "original_reel": "mock://food-texture-prep",
+  "original_notes": "Placeholder food reel: close-up preparation with glossy spread texture and warm kitchen light.",
+  "platform_tested": "veo",
+  "master_prompt": "Close-up food preparation focused on glossy spread texture, warm lighting, and satisfying social-media food reel pacing.",
+  "platform_prompt": "Warm kitchen light catches glossy spread texture on toast in a tight food-preparation frame. The motion stays ingredient-focused and satisfying, with attention moving across the surface texture and preparation detail while the background remains secondary.",
+  "generated_video": "mock://generated/food_mock_001",
+  "scores": {
+    "subject_accuracy": 0,
+    "motion_accuracy": 0,
+    "camera_accuracy": 0,
+    "lighting_accuracy": 0,
+    "audio_vibe_accuracy": 0,
+    "social_media_realism": 0,
+    "overall_similarity": 0
+  },
+  "issues": [],
+  "strengths": [],
+  "final_notes": "Mock case for validating benchmark workflow only."
+}

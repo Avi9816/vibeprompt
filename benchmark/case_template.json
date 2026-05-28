@@ -1,0 +1,22 @@
+{
+  "case_id": "",
+  "category": "",
+  "original_reel": "",
+  "original_notes": "",
+  "platform_tested": "veo",
+  "master_prompt": "",
+  "platform_prompt": "",
+  "generated_video": "",
+  "scores": {
+    "subject_accuracy": 0,
+    "motion_accuracy": 0,
+    "camera_accuracy": 0,
+    "lighting_accuracy": 0,
+    "audio_vibe_accuracy": 0,
+    "social_media_realism": 0,
+    "overall_similarity": 0
+  },
+  "issues": [],
+  "strengths": [],
+  "final_notes": ""
+}

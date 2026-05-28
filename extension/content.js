@@ -715,7 +715,16 @@ async function saveHistory(data,url){
 function esc(s){return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
 
 // - OVERLAY -
-const PRESET_LABELS={cinematic:"Cinematic",luxury:"Luxury",fashion:"Fashion Editorial",viral:"Viral Reel",documentary:"Documentary",cyberpunk:"Cyberpunk",anime:"Anime"};
+const GENERATION_STYLES={
+  cinematic:{title:"Cinematic",description:"Film-like cinematic realism."},
+  viral:{title:"Viral Reel",description:"Native TikTok/Instagram short-form energy."},
+  luxury:{title:"Luxury",description:"Premium commercial aesthetic."},
+  documentary:{title:"Documentary",description:"Natural observational realism."},
+  fashion:{title:"Fashion Editorial",description:"Magazine-inspired fashion direction."},
+  cyberpunk:{title:"Cyberpunk",description:"Stylized neon futuristic atmosphere."},
+  anime:{title:"Anime",description:"Stylized anime-inspired visual direction."},
+};
+const PRESET_LABELS=Object.fromEntries(Object.entries(GENERATION_STYLES).map(([id,p])=>[id,p.title]));
 const FEEDBACK_ISSUE_TAGS=[
   "wrong motion",
   "wrong dialogue",
@@ -727,10 +736,27 @@ const FEEDBACK_ISSUE_TAGS=[
   "inaccurate subject",
   "poor audio recreation",
 ];
+const QUICK_BENCH_FAILURES=[
+  "motion too static",
+  "wrong vibe",
+  "generic face",
+  "wrong camera",
+  "weak reel energy",
+  "lighting mismatch",
+  "poor motion continuity",
+  "weak creator vibe",
+  "too cinematic",
+  "inaccurate movement",
+  "inaccurate audio vibe",
+  "other",
+];
 
 function presetButtons(currentPreset){
-  return Object.entries(PRESET_LABELS).map(([id,label])=>
-    `<button class="vp-preset-btn${id===currentPreset?" vp-preset-active":""}" data-preset="${id}">${label}</button>`
+  return Object.entries(GENERATION_STYLES).map(([id,p])=>
+    `<button class="vp-preset-btn${id===currentPreset?" vp-preset-active":""}" data-preset="${id}" data-preset-desc="${esc(p.description)}">
+      <span class="vp-preset-title">${esc(p.title)}</span>
+      <span class="vp-preset-desc">${esc(p.description)}</span>
+    </button>`
   ).join("");
 }
 
@@ -740,17 +766,13 @@ function buildOverlay(data){
     sceneProgression="",cameraMotion="",environmentalMotion="",
     stylePreset="cinematic",mediaType}=data;
   const isVideoType=mediaType==="video";
-  const mainPrompt=isVideoType
+  const activeStyle=GENERATION_STYLES[stylePreset]||GENERATION_STYLES.cinematic;
+  const masterPrompt=isVideoType
     ? (prompts.master_prompt||prompts.veo||prompts.sora||prompts.runway||prompts.kling||prompts.pika||prompts.primary||"")
     : (prompts.primary||prompts.flux||prompts.midjourney||"");
-  const promptLabel=isVideoType?"Copy Prompt":"Image Generation Prompt";
-  const toolHint=isVideoType?"Analyze -> Copy Prompt -> Paste into model":"Flux / Midjourney / DALL-E";
-
-  const tags=styleTags.map(t=>`<span class="vp-tag">${esc(t)}</span>`).join("");
 
   // Video tools first for video, image tools first for images
   const videoTools=[
-    {id:"master",label:"Master",     copyLabel:"Copy Master Prompt", icon:"&#10024;",text:prompts.master_prompt},
     {id:"veo",   label:"Veo",        copyLabel:"Copy Veo Prompt",    icon:"&#127916;",text:prompts.veo},
     {id:"sora",  label:"Sora",       icon:"&#127916;",text:prompts.sora},
     {id:"runway",label:"Runway",     copyLabel:"Copy Runway Prompt", icon:"&#127916;",text:prompts.runway},
@@ -762,28 +784,30 @@ function buildOverlay(data){
     {id:"mj",    label:"Midjourney", icon:"&#128444;",text:prompts.midjourney},
     {id:"key",   label:"Keyframe",   icon:"&#128444;",text:prompts.keyframe},
   ];
-  const orderedTools=(isVideoType?[...videoTools,...imageTools]:[...imageTools,...videoTools]).filter(p=>p.text);
-  const primaryCopyTools=(isVideoType?videoTools:imageTools).filter(p=>p.text);
-  const primaryCopyButtons=primaryCopyTools.map(p=>`
-    <button class="vp-model-copy" data-ct="${esc(p.text)}">
-      <span>${esc(p.copyLabel||`Copy ${p.label} Prompt`)}</span>
-    </button>`).join("");
-  const feedbackPlatformOptions=primaryCopyTools.map(p=>{
+  const platformTools=(isVideoType?videoTools:imageTools).filter(p=>p.text);
+  const feedbackTools=[
+    {id:"master",label:isVideoType?"Master":"Primary",text:masterPrompt},
+    ...platformTools,
+  ].filter(p=>p.text);
+  const feedbackPlatformOptions=feedbackTools.map(p=>{
     const promptKey=p.id==="master"?"master_prompt":p.id;
     return `<option value="${esc(promptKey)}">${esc(p.label)}</option>`;
   }).join("");
   const feedbackTags=FEEDBACK_ISSUE_TAGS.map(tag=>
     `<button class="vp-feedback-tag" data-feedback-tag="${esc(tag)}" type="button">${esc(tag)}</button>`
   ).join("");
+  const quickBenchmarkButton=isVideoType
+    ? `<button class="vp-save-benchmark" id="vpSaveBenchmark" type="button">Save Benchmark</button>`
+    : "";
 
-  const platforms=orderedTools.map(p=>`
-    <div class="vp-pcard">
-      <div class="vp-pcard-head">
-        <span class="vp-pcard-name">${p.icon} ${p.label}</span>
-        <button class="vp-cpybtn" data-ct="${esc(p.text)}">${esc(p.copyLabel||"Copy")}</button>
-      </div>
+  const platforms=platformTools.map(p=>`
+    <details class="vp-platform-card">
+      <summary class="vp-platform-summary">
+        <span class="vp-pcard-name">${p.icon} ${esc(p.label)}</span>
+        <button class="vp-cpybtn vp-platform-copy" data-ct="${esc(p.text)}" type="button">${esc(p.copyLabel||"Copy")}</button>
+      </summary>
       <div class="vp-pcard-text">${esc(p.text)}</div>
-    </div>`).join("");
+    </details>`).join("");
 
   // Motion analysis section (video only)
   const motionSection=isVideoType?`
@@ -825,82 +849,81 @@ function buildOverlay(data){
     <div class="vp-head-left">
       <span class="vp-logo">&#10024;</span>
       <span class="vp-brand">VibePrompt</span>
-      <span class="vp-preset-chip">${esc(PRESET_LABELS[stylePreset]||stylePreset)}</span>
+      <span class="vp-preset-chip">${esc(activeStyle.title)}</span>
     </div>
     <button class="vp-x" id="vpX">&#10005;</button>
   </div>
 
   <div class="vp-scroll">
 
-    <!-- STYLE PRESETS -->
+    <!-- GENERATION STYLE -->
     <div class="vp-presets-section">
-      <div class="vp-section-label">Style Preset</div>
+      <div class="vp-section-label">Generation Style</div>
       <div class="vp-presets-row" id="vpPresets">${presetButtons(stylePreset)}</div>
+      <div class="vp-preset-helper" id="vpPresetHelper">${esc(activeStyle.description)}</div>
     </div>
 
-    <!-- MAIN PROMPT -->
-    <div class="vp-main-section">
-      <div class="vp-main-label">${esc(promptLabel)}</div>
-      ${tags?`<div class="vp-tags">${tags}</div>`:""}
-      <div class="vp-copy-grid">${primaryCopyButtons}</div>
-      <div class="vp-main-prompt" id="vpMain">${esc(mainPrompt)}</div>
-      <div class="vp-tool-hint">${isVideoType?"&#127916;":"&#128444;"} Best for: ${toolHint}</div>
-      <div class="vp-main-actions">
+    <!-- MASTER PROMPT -->
+    <div class="vp-master-section">
+      <div class="vp-master-head">
+        <div>
+          <div class="vp-main-label">${isVideoType?"Master Prompt":"Generated Prompt"}</div>
+          <div class="vp-master-desc">${isVideoType?"Optimized cross-platform cinematic video prompt.":"Primary image generation prompt."}</div>
+        </div>
         <button class="vp-cpy-main" id="vpCpyMain">&#128203; ${isVideoType?"Copy Master Prompt":"Copy Prompt"}</button>
+      </div>
+      <div class="vp-main-prompt" id="vpMain">${esc(masterPrompt)}</div>
+      <div class="vp-main-actions">
         <button class="vp-cpy-all" id="vpCpyAll">Copy All</button>
       </div>
     </div>
 
-    <!-- PROMPT FEEDBACK -->
-    <div class="vp-feedback-section">
-      <div class="vp-section-label">Rate Prompt Quality</div>
-      <div class="vp-feedback-row">
-        <select class="vp-feedback-select" id="vpFeedbackPlatform">${feedbackPlatformOptions}</select>
-        <div class="vp-rating-row">
-          ${[1,2,3,4,5].map(n=>`<button class="vp-rating-btn" data-rating="${n}" type="button">&#9733; ${n}</button>`).join("")}
-        </div>
-      </div>
-      <div class="vp-feedback-tags">${feedbackTags}</div>
-      <div class="vp-feedback-status" id="vpFeedbackStatus">Optional: pick issue tags before rating.</div>
-    </div>
-
-    <!-- MOTION ANALYSIS -->
-    ${motionSection}
-
     <!-- PLATFORM PROMPTS -->
+    <div class="vp-section-label vp-generated-label">Generated Prompts</div>
     <details class="vp-details">
-      <summary class="vp-summary">Advanced: Prompt Text <span class="vp-badge">${orderedTools.length}</span></summary>
+      <summary class="vp-summary">Platform-Specific Prompts <span class="vp-badge">${platformTools.length}</span></summary>
       <div class="vp-details-body">${platforms}</div>
     </details>
 
-    <details class="vp-details">
-      <summary class="vp-summary">Advanced: JSON Export</summary>
+    <!-- BENCHMARK TOOLS -->
+    <details class="vp-details vp-benchmark-details">
+      <summary class="vp-summary">Benchmark Tools</summary>
       <div class="vp-details-body">
-        <button class="vp-json-btn" id="vpDl">&#11015; Download JSON</button>
-      </div>
-    </details>
-
-    <!-- NEGATIVE PROMPT -->
-    <details class="vp-details">
-      <summary class="vp-summary">Negative Prompt</summary>
-      <div class="vp-details-body">
-        <div class="vp-neg-box">
-          <div class="vp-neg-text" id="vpNeg">${esc(data.negative||"")}</div>
-          <button class="vp-cpybtn" data-copy="vpNeg">Copy</button>
+        <div class="vp-benchmark-actions">${quickBenchmarkButton}</div>
+        <div class="vp-feedback-section">
+          <div class="vp-section-label">Rate Prompt Quality</div>
+          <div class="vp-feedback-row">
+            <select class="vp-feedback-select" id="vpFeedbackPlatform">${feedbackPlatformOptions}</select>
+            <div class="vp-rating-row">
+              ${[1,2,3,4,5].map(n=>`<button class="vp-rating-btn" data-rating="${n}" type="button">&#9733; ${n}</button>`).join("")}
+            </div>
+          </div>
+          <div class="vp-feedback-tags">${feedbackTags}</div>
+          <div class="vp-feedback-status" id="vpFeedbackStatus">Optional: pick issue tags before rating.</div>
         </div>
       </div>
     </details>
 
-    <!-- GROUNDED ANALYSIS -->
+    <!-- ADVANCED DEBUG -->
     <details class="vp-details">
-      <summary class="vp-summary">&#128269; Grounded Analysis <span class="vp-badge vp-green">Stage 1</span></summary>
-      <div class="vp-details-body"><div class="vp-fact-grid">${factRows}</div></div>
-    </details>
-
-    <!-- DEBUG -->
-    <details class="vp-details">
-      <summary class="vp-summary">&#128295; Debug <span class="vp-badge vp-amber">${esc(model||"")}</span></summary>
+      <summary class="vp-summary">Advanced Debug Info <span class="vp-badge vp-amber">${esc(model||"")}</span></summary>
       <div class="vp-details-body">
+        ${motionSection}
+        <details class="vp-inner-details">
+          <summary class="vp-inner-summary">Video Direction Metadata</summary>
+          <div class="vp-fact-grid">${factRows}</div>
+        </details>
+        <details class="vp-inner-details">
+          <summary class="vp-inner-summary">JSON Export</summary>
+          <button class="vp-json-btn" id="vpDl">&#11015; Download JSON</button>
+        </details>
+        ${data.negative?`<details class="vp-inner-details">
+          <summary class="vp-inner-summary">Negative Prompt</summary>
+          <div class="vp-neg-box">
+            <div class="vp-neg-text" id="vpNeg">${esc(data.negative||"")}</div>
+            <button class="vp-cpybtn" data-copy="vpNeg">Copy</button>
+          </div>
+        </details>`:""}
         <div class="vp-dbg-meta">
           <span>Model: <b>${esc(model||"?")}</b></span>
           <span>Mode: <b>${esc(analysisMode||"?")}</b></span>
@@ -928,6 +951,128 @@ function feedbackConfidenceScores(factual={}){
     speech:Number(factual.confidence_speech||0),
     workflow_domain:Number(factual.confidence_workflow_domain||0),
   };
+}
+
+function quickBenchmarkCategory(factual={}){
+  const text=[
+    factual.reel_type,
+    factual.content_type,
+    factual.creator_archetype,
+    factual.reel_energy,
+    factual.scene_purpose,
+    factual.activity_context,
+    factual.content_theme,
+    factual.primary_object,
+    factual.product_identity,
+  ].filter(Boolean).join(" ").toLowerCase();
+  if(/\b(beauty|makeup|skincare|hair|fashion_portrait|beauty_portrait)\b/.test(text)) return "beauty";
+  if(/\b(dance|music[_\s-]?performance|rhythmic|beat|choreography)\b/.test(text)) return "dance";
+  if(/\b(food|recipe|cooking|ingredient|bread|meal|drink|coffee)\b/.test(text)) return "food";
+  if(/\b(product|unboxing|showcase|review|packaging|brand)\b/.test(text)) return "product";
+  if(/\b(talking[_\s-]?head|educational|motivational|tutorial|presenter|explaining)\b/.test(text)) return "talking_head";
+  if(/\b(sport|fitness|gym|athletic|workout)\b/.test(text)) return "sports";
+  if(/\b(travel|landscape|destination|street|hotel|nature_scene)\b/.test(text)) return "travel";
+  return "talking_head";
+}
+
+function quickBenchmarkMotionEnergy(factual={}){
+  return [
+    factual.dance_energy,
+    factual.movement_density,
+    factual.motion_rhythm,
+    factual.body_motion_style,
+    factual.performance_intensity,
+    factual.reel_energy,
+    factual.motion_style,
+    factual.subject_motion,
+  ].filter(Boolean).join("; ");
+}
+
+function quickBenchmarkPayload(data,rating,mainFailure,notes){
+  const prompts=data.prompts||{};
+  const factual=data.factual||{};
+  return {
+    category:quickBenchmarkCategory(factual),
+    master_prompt:prompts.master_prompt||"",
+    veo_prompt:prompts.veo||"",
+    reel_type:factual.reel_type||"other",
+    creator_archetype:factual.creator_archetype||"",
+    motion_energy:quickBenchmarkMotionEnergy(factual),
+    rating,
+    main_failure:mainFailure||"other",
+    notes:notes||"",
+  };
+}
+
+function showQuickBenchmarkModal(data,root){
+  root.querySelector(".vp-quick-modal")?.remove();
+  const failures=QUICK_BENCH_FAILURES.map(f=>`<option value="${esc(f)}">${esc(f)}</option>`).join("");
+  const modal=document.createElement("div");
+  modal.className="vp-quick-modal";
+  modal.innerHTML=`
+    <div class="vp-quick-card">
+      <div class="vp-quick-head">
+        <span>Save Benchmark</span>
+        <button class="vp-quick-x" type="button">&#10005;</button>
+      </div>
+      <div class="vp-quick-body">
+        <div class="vp-quick-label">Rating</div>
+        <div class="vp-quick-rating">
+          <button data-qb-rating="bad" type="button">&#9733; Bad</button>
+          <button data-qb-rating="okay" type="button">&#9733;&#9733; Okay</button>
+          <button data-qb-rating="good" type="button">&#9733;&#9733;&#9733; Good</button>
+        </div>
+        <div class="vp-quick-label">Main failure</div>
+        <select class="vp-quick-select" id="vpQuickFailure">${failures}</select>
+        <div class="vp-quick-label">Optional notes</div>
+        <textarea class="vp-quick-notes" id="vpQuickNotes" maxlength="500" placeholder="Short note..."></textarea>
+        <div class="vp-quick-status" id="vpQuickStatus">Choose a rating to save.</div>
+      </div>
+    </div>`;
+  root.appendChild(modal);
+  modal.querySelector(".vp-quick-x")?.addEventListener("click",()=>modal.remove());
+  modal.addEventListener("click",e=>{if(e.target===modal) modal.remove();});
+  modal.querySelectorAll("[data-qb-rating]").forEach(btn=>{
+    btn.addEventListener("click",()=>submitQuickBenchmark(data,root,modal,btn.dataset.qbRating));
+  });
+}
+
+async function submitQuickBenchmark(data,root,modal,rating){
+  const status=modal.querySelector("#vpQuickStatus");
+  const failure=modal.querySelector("#vpQuickFailure")?.value||"other";
+  const notes=modal.querySelector("#vpQuickNotes")?.value||"";
+  const payload=quickBenchmarkPayload(data,rating,failure,notes);
+  try{
+    if(status){
+      status.textContent="Saving benchmark...";
+      status.className="vp-quick-status";
+    }
+    const apiBase=(await getStorage("apiBase"))||DEFAULT_API;
+    const res=await fetch(apiBase.replace(/\/$/,"")+"/quick-benchmark",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify(payload),
+    });
+    if(!res.ok){
+      const err=await res.json().catch(()=>({error:"HTTP "+res.status}));
+      throw new Error(err.error||"HTTP "+res.status);
+    }
+    console.log("[quick benchmark]",{
+      category:payload.category,
+      rating:payload.rating,
+      main_failure:payload.main_failure,
+    });
+    if(status){
+      status.textContent="Benchmark saved.";
+      status.className="vp-quick-status vp-feedback-ok";
+    }
+    setTimeout(()=>modal.remove(),650);
+  }catch(e){
+    if(status){
+      status.textContent="Save failed: "+e.message;
+      status.className="vp-quick-status vp-feedback-err";
+    }
+  }
 }
 
 async function submitPromptFeedback(data,root,rating){
@@ -1003,6 +1148,7 @@ function showOverlay(data){
   const copyMain=()=>copyText(mainText,document.getElementById("vpCpyMain"));
   document.getElementById("vpCpyMain")?.addEventListener("click",copyMain);
   document.getElementById("vpCpyMain2")?.addEventListener("click",copyMain);
+  document.getElementById("vpSaveBenchmark")?.addEventListener("click",()=>showQuickBenchmarkModal(data,root));
 
   document.getElementById("vpCpyAll")?.addEventListener("click",()=>{
     const p=data.prompts||{};
@@ -1010,7 +1156,10 @@ function showOverlay(data){
     copyText(all,document.getElementById("vpCpyAll"));
   });
 
-  root.querySelectorAll("[data-ct]").forEach(btn=>btn.addEventListener("click",()=>copyText(btn.dataset.ct,btn)));
+  root.querySelectorAll("[data-ct]").forEach(btn=>btn.addEventListener("click",e=>{
+    e.stopPropagation();
+    copyText(btn.dataset.ct,btn);
+  }));
   root.querySelectorAll("[data-copy]").forEach(btn=>btn.addEventListener("click",()=>{
     const el=document.getElementById(btn.dataset.copy);
     if(el) copyText(el.textContent,btn);
@@ -1039,6 +1188,8 @@ function showOverlay(data){
       setStorage("vp_preset",preset);
       // Update active state
       root.querySelectorAll(".vp-preset-btn").forEach(b=>b.classList.toggle("vp-preset-active",b.dataset.preset===preset));
+      const helper=root.querySelector("#vpPresetHelper");
+      if(helper) helper.textContent=btn.dataset.presetDesc||"";
       // Trigger re-analysis with new preset
       closeOverlay();
       if(activebtn) activebtn.click();

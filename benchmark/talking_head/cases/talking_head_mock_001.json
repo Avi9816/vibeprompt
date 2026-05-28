@@ -1,0 +1,22 @@
+{
+  "case_id": "talking_head_mock_001",
+  "category": "talking_head",
+  "original_reel": "mock://talking-head-healthcare",
+  "original_notes": "Placeholder talking-head reel: presenter speaking directly to camera in a bright hallway.",
+  "platform_tested": "veo",
+  "master_prompt": "Educational creator speaking directly to camera in a bright hallway, with natural hand emphasis and clear presenter energy.",
+  "platform_prompt": "A bright hallway frames an educational creator speaking directly to camera. Natural hand emphasis supports the explanation while the camera holds a stable portrait composition. Soft practical lighting keeps the presenter readable and preserves a social-media teaching feel.",
+  "generated_video": "mock://generated/talking_head_mock_001",
+  "scores": {
+    "subject_accuracy": 0,
+    "motion_accuracy": 0,
+    "camera_accuracy": 0,
+    "lighting_accuracy": 0,
+    "audio_vibe_accuracy": 0,
+    "social_media_realism": 0,
+    "overall_similarity": 0
+  },
+  "issues": [],
+  "strengths": [],
+  "final_notes": "Mock case for validating benchmark workflow only."
+}
