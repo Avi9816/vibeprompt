@@ -211,6 +211,16 @@ For product content, identify the primary object, supporting objects, commercial
   "content_theme": "factual 3-12 word content theme, or empty string",
   "audience_intent": "factual 3-12 word audience-facing intent, or empty string",
   "reel_type": "one allowed reel category, or other",
+  "creator_intent": "creator-performance intent if directly supported, or empty string",
+  "social_behavior": "social-media behavior pattern if visible or supported, or empty string",
+  "pose_rhythm": "pose or performance rhythm if visible across frames, or empty string",
+  "performance_pattern": "creator performance pattern if supported, or empty string",
+  "creator_confidence": "visible creator confidence/body language, or empty string",
+  "viewer_hook_style": "subtle viewer-hook style if supported by reel behavior, or empty string",
+  "camera_style": "social-video camera style if supported, or empty string",
+  "camera_energy": "camera cadence/energy if supported, or empty string",
+  "camera_relationship": "creator-camera relationship if supported, or empty string",
+  "viewer_perspective": "viewer perspective if supported, or empty string",
   "primary_object": "main visible product or food item, or empty string",
   "secondary_objects": ["supporting visible objects, ingredients, toppings, or empty array"],
   "hero_element": "main commercial focal point, texture, label, or visual detail, or empty string",
@@ -661,7 +671,7 @@ function deriveReelEnergyIntelligence(factual) {
   const talking=/talking_head|educational|motivational|speaking|explaining|presenting|teaching|camera-facing/.test(text);
   const food=contentType==="food"||/food|recipe|cooking|preparation|spread|bread|ingredient|topping|coffee|snack/.test(text);
   const product=contentType==="product"||/product|showcase|unboxing|review|packaging|brand|label|skincare|cosmetic/.test(text);
-  if(portrait||["fashion_portrait","beauty_portrait","lifestyle_portrait"].includes(reelType)) {
+  if(portrait||["fashion_portrait","beauty_portrait","lifestyle_portrait","fashion_outfit_check","beauty_pose_reel","creator_selfie_reel","lifestyle_creator_reel","influencer_pose_reel"].includes(reelType)) {
     result.reel_energy=/confident|bold|expressive|eye contact|posing|rhythmic/i.test(text)
       ? "confident fashion portrait reel"
       : "camera-aware portrait reel";
@@ -748,7 +758,7 @@ function deriveMotionEnergyIntelligence(factual) {
   const result={...empty};
   const hasMusic=["music","speech_and_music"].includes(audioType)||/\bmusic|song|beat|rhythm|dance\b/.test(motionText);
   const continuous=/\b(continuous|repeated|flowing|full-body|full body|jump|run|running|dance|dancing|workout|exercise|lift|lifting|squat|sprinting|kick|throw|hit|swing|athletic|sports|fast|rapid|energetic|rhythmic)\b/.test(motionText);
-  const dance=/\b(dance|dancing|music_performance|rhythmic|beat|pose transitions|expressive movement)\b/.test(motionText);
+  const dance=/\b(dance|dancing|music_performance|social_dance|rhythmic|beat|pose transitions|expressive movement)\b/.test(motionText);
   const gym=/\b(gym|fitness|workout|exercise|lifting|squat|pushup|training|athletic movement)\b/.test(motionText);
   const sports=/\b(sport|sports|football|cricket|basketball|tennis|running|sprinting|kick|throw|hit|swing|reactive|highlight)\b/.test(motionText);
   if(dance&&(continuous||hasMusic)) {
@@ -837,14 +847,22 @@ function deriveCreatorArchetype(factual) {
     cleanFact(factual?.food_focus),
   ].join(" ").toLowerCase();
   const result={...empty};
-  const beauty=/beauty|makeup|skincare|cosmetic|glam|hair|jewelry|fashion_portrait|beauty_portrait|instagram beauty/.test(text);
-  const fashion=/fashion|outfit|style|dress|sari|saree|portrait posing|model|lookbook|editorial/.test(text);
+  const beauty=/beauty|makeup|skincare|cosmetic|glam|hair|jewelry|fashion_portrait|beauty_portrait|beauty_pose_reel|instagram beauty/.test(text);
+  const fashion=/fashion|outfit|outfit-check|fashion_outfit_check|influencer_pose_reel|style|dress|sari|saree|portrait posing|model|lookbook|editorial/.test(text);
   const fitness=/fitness|gym|workout|training|exercise|athletic|power-driven/.test(text);
   const food=contentType==="food"||/food|recipe|cooking|ingredient|bread|spread|coffee|snack|viral food/.test(text);
+  const dance=/social_dance|dance|dancing|music-driven|rhythmic full-body/.test(text);
   const gaming=/game|gaming|stream|streamer|console|controller|esports/.test(text);
   const tech=/software|ai tool|workflow|screen_recording|ui_screenshot|tech|coding|tutorial|educational|explaining|teaching|ai video|ai image|website|app/.test(text);
-  const lifestyle=/lifestyle|vlog|travel|daily|home|routine|wellness|creator reel/.test(text);
-  if(beauty) {
+  const lifestyle=/lifestyle|lifestyle_creator_reel|creator_selfie_reel|vlog|travel|daily|home|routine|wellness|creator reel/.test(text);
+  if(dance) {
+    result.creator_archetype="dance creator";
+    result.creator_presence="camera-aware performance presence";
+    result.content_personality="energetic and expressive";
+    result.social_platform_style="short-form dance reel";
+    result.presentation_style="rhythm-first creator performance";
+    result.viewer_relationship="direct performance-facing engagement";
+  } else if(beauty) {
     result.creator_archetype="beauty influencer";
     result.creator_presence="camera-aware confident creator presence";
     result.content_personality="stylish and feminine";
@@ -1452,6 +1470,168 @@ function deriveCreatorPerformanceMode(factual) {
   return performance;
 }
 
+function creatorIntentEvidenceText(factual) {
+  return [
+    cleanFact(factual?.reel_type),
+    cleanFact(factual?.content_type),
+    cleanFact(factual?.subjects),
+    cleanFact(factual?.clothing_top),
+    cleanFact(factual?.clothing_bottom),
+    cleanFact(factual?.pose_action),
+    cleanFact(factual?.subject_motion),
+    cleanFact(factual?.visible_motion_cues),
+    cleanFact(factual?.inferred_motion),
+    cleanFact(factual?.reel_energy),
+    cleanFact(factual?.performance_style),
+    cleanFact(factual?.social_aesthetic),
+    cleanFact(factual?.motion_style),
+    cleanFact(factual?.creator_archetype),
+    cleanFact(factual?.creator_presence),
+    cleanFact(factual?.presentation_style),
+    cleanFact(factual?.viewer_relationship),
+    cleanFact(factual?.audio_type),
+    cleanFact(factual?.dialogue_summary),
+    cleanFact(factual?.spoken_topic),
+    cleanFact(factual?.primary_object),
+    cleanFact(factual?.hero_element),
+    cleanFact(factual?.environment),
+  ].join(" ").toLowerCase();
+}
+
+function deriveCreatorIntentIntelligence(factual) {
+  const text=creatorIntentEvidenceText(factual);
+  const speechReliable=reliableSpeechPresent(factual);
+  const reelType=cleanFact(factual?.reel_type).toLowerCase();
+  const contentType=cleanFact(factual?.content_type).toLowerCase();
+  const result={
+    creator_intent:"",
+    social_behavior:"",
+    pose_rhythm:"",
+    performance_pattern:"",
+    creator_confidence:"",
+    viewer_hook_style:"",
+  };
+  const fashion=/\b(fashion|outfit|style|styling|clothing|fit check|outfit-check|pose|posing|beauty|makeup|skincare|mirror)\b/.test(text)||/fashion|beauty|lifestyle|influencer_pose|outfit/.test(reelType);
+  const podcast=/\b(podcast|microphone|motivational|motivation|speaking|explaining|presenting|talking|conversation|founder|advice)\b/.test(text)||speechReliable;
+  const dance=/\b(dance|dancing|rhythm|music-driven|beat|full-body|choreography|performance)\b/.test(text)||/dance|music_performance|social_dance/.test(reelType);
+  const product=/\b(product|unbox|unboxing|package|showcase|branding|label)\b/.test(text)||contentType==="product";
+  const food=/\b(food|recipe|ingredient|spread|cooking|preparation|bread|topping)\b/.test(text)||contentType==="food";
+  if(dance) {
+    result.creator_intent="performance-focused dance showcase";
+    result.social_behavior="camera-aware rhythmic performance";
+    result.pose_rhythm="continuous music-driven transitions";
+    result.performance_pattern="full-body creator movement flow";
+    result.creator_confidence="high-confidence social-performance energy";
+    result.viewer_hook_style="high-energy rhythm-first engagement";
+  } else if(podcast) {
+    result.creator_intent=/\bmotivational|motivation\b/.test(text) ? "emotionally engaging motivational delivery" : "direct creator explanation";
+    result.social_behavior="direct audience-facing creator communication";
+    result.pose_rhythm="steady conversational cadence";
+    result.performance_pattern=microphoneDetected(factual) ? "natural speaking emphasis near the microphone" : "natural speaking emphasis with expressive gestures";
+    result.creator_confidence="comfortable creator-performance presence";
+    result.viewer_hook_style=/\bmotivational|emotion\b/.test(text) ? "emotion-driven speaking engagement" : "direct explanation hook";
+  } else if(fashion) {
+    result.creator_intent="showcasing outfit styling with confident creator presence";
+    result.social_behavior="direct social-media posing behavior";
+    result.pose_rhythm="steady confident pose transitions";
+    result.performance_pattern="creator shifts naturally through outfit-focused poses";
+    result.creator_confidence="camera-aware confident body language";
+    result.viewer_hook_style="strong visual-first outfit reveal energy";
+  } else if(product) {
+    result.creator_intent="presenting the hero product clearly";
+    result.social_behavior="creator-led product presentation";
+    result.pose_rhythm="steady reveal-and-hold pacing";
+    result.performance_pattern=isUnboxingContent(factual) ? "creator opens and presents product details" : "creator directs attention toward product details";
+    result.creator_confidence="confident commercial creator presence";
+    result.viewer_hook_style="product-first visual hook";
+  } else if(food) {
+    result.creator_intent="presenting satisfying food preparation";
+    result.social_behavior="food creator visual demonstration";
+    result.pose_rhythm="slow texture-focused pacing";
+    result.performance_pattern="food motion centers texture and ingredient detail";
+    result.creator_confidence="calm food-creator presentation";
+    result.viewer_hook_style="satisfying texture-first hook";
+  } else if(contentType==="human_scene") {
+    result.creator_intent="authentic creator presence";
+    result.social_behavior="camera-aware social-video behavior";
+    result.pose_rhythm="natural creator cadence";
+    result.performance_pattern="creator moves naturally for the reel";
+    result.creator_confidence="relaxed creator confidence";
+    result.viewer_hook_style="direct creator presence";
+  }
+  console.log("[creator intent intelligence]");
+  console.log(JSON.stringify(result,null,2));
+  return result;
+}
+
+function translateToSocialMotionLanguage(text, factual={}) {
+  let value=cleanFact(text);
+  if(!value) return "";
+  const evidence=creatorIntentEvidenceText(factual);
+  const fashion=/\b(fashion|outfit|style|clothing|pose|posing|beauty|mirror)\b/.test(evidence);
+  const dance=/\b(dance|rhythm|music|beat|full-body|performance)\b/.test(evidence);
+  const speech=reliableSpeechPresent(factual);
+  value=value
+    .replace(/\bhead (?:moves|turns?) left\b/gi,"she turns naturally into the next creator-style pose")
+    .replace(/\bhead (?:moves|turns?) right\b/gi,"she turns naturally into the next creator-style pose")
+    .replace(/\bright hand moves to hip\b/gi,"her hand settles confidently into an outfit-check stance")
+    .replace(/\bleft hand moves to hip\b/gi,"her hand settles confidently into an outfit-check stance")
+    .replace(/\bsubject shifts posture\b/gi,"she transitions smoothly through relaxed creator poses")
+    .replace(/\bsubtle pose adjustment\b/gi,fashion ? "smooth outfit-check pose transition" : "natural creator-style pose shift")
+    .replace(/\bnatural expression change\b/gi,"camera-aware expression shift")
+    .replace(/\bportrait motion remains restrained and natural\b/gi,"portrait movement feels relaxed and creator-native")
+    .replace(/\bcomposed stillness holds the frame\b/gi,"creator holds a calm camera-aware pose")
+    .replace(/\bvisible motion\b/gi,"creator-style movement")
+    .replace(/\bsubject motion\b/gi,"creator movement")
+    .replace(/\brealistic movement\b/gi,"creator-style movement")
+    .replace(/\bnatural motion\b/gi,"social-video movement");
+  if(speech) {
+    value=value
+      .replace(/\bmouth opens?\b/gi,"creator speaks naturally")
+      .replace(/\bmouth opening\b/gi,"natural speaking movement")
+      .replace(/\bsmall gestures?\b/gi,"small conversational gestures");
+  }
+  if(dance) {
+    value=value
+      .replace(/\bbody movement\b/gi,"rhythmic full-body performance")
+      .replace(/\bfull-body movement\b/gi,"camera-aware full-body performance")
+      .replace(/\bcontinuous movement\b/gi,"continuous music-driven movement");
+  }
+  return normalizePromptSentences(value);
+}
+
+function deriveSocialCameraIntelligence(factual) {
+  const text=creatorIntentEvidenceText(factual);
+  const speechReliable=reliableSpeechPresent(factual);
+  const rawCamera=cleanFact(factual?.camera_motion).toLowerCase();
+  const staticCamera=/^(static|none|none visible|not visible|not enough evidence|locked-off|locked off|)$/i.test(rawCamera);
+  const creatorLike=/\b(creator|influencer|reel|instagram|tiktok|fashion|beauty|outfit|dance|podcast|speaking|selfie|social)\b/.test(text)||speechReliable;
+  const dynamic=/\b(dance|fitness|sports|rhythm|music|full-body|high-energy)\b/.test(text);
+  const result={
+    camera_style:"",
+    camera_energy:"",
+    camera_relationship:"",
+    viewer_perspective:"",
+  };
+  if(creatorLike) {
+    result.camera_style=dynamic
+      ? "dynamic vertical creator framing"
+      : staticCamera
+        ? "intimate vertical creator framing"
+        : "handheld creator selfie framing";
+    result.camera_energy=dynamic
+      ? "energetic vertical reel cadence"
+      : "relaxed vertical reel cadence";
+    result.camera_relationship=speechReliable
+      ? "viewer-facing creator framing"
+      : "creator-camera intimacy";
+    result.viewer_perspective="intimate short-form social-video perspective";
+  }
+  console.log("[social camera intelligence]");
+  console.log(JSON.stringify(result,null,2));
+  return result;
+}
+
 function buildSilenceDirection(factual) {
   const audioType=cleanFact(factual?.audio_type).toLowerCase()||"none";
   if(audioType!=="none") return "";
@@ -1520,6 +1700,8 @@ function buildActionAbstraction(factual) {
   const speechPresent=factual?.speech_present===true || String(factual?.speech_present).trim().toLowerCase()==="true";
   const speechReliable=reliableSpeechPresent(factual);
   const creatorPerformance=deriveCreatorPerformanceMode(factual);
+  const creatorIntent=deriveCreatorIntentIntelligence(factual);
+  const socialCamera=deriveSocialCameraIntelligence(factual);
   const mic=microphoneDetected(factual);
   const silenceDirection=resolveSilenceDirection(factual);
   const speechLanguage=cleanFact(factual?.speech_language);
@@ -1591,7 +1773,7 @@ function buildActionAbstraction(factual) {
         ? "presenter emphasizing a key point"
         : "presenter explaining information";
     }
-  } else if(["lifestyle_portrait","fashion_portrait","beauty_portrait"].includes(reelType)) {
+  } else if(["lifestyle_portrait","fashion_portrait","beauty_portrait","fashion_outfit_check","beauty_pose_reel","creator_selfie_reel","lifestyle_creator_reel","influencer_pose_reel"].includes(reelType)) {
     if(/\bhead|turn|turns|turning|expression|smile|gaze|eyes|face\b/.test(motionText)) {
       primaryAction=/\bexpression|smile|face|eyes\b/.test(motionText)
         ? "natural expression change"
@@ -1616,8 +1798,8 @@ function buildActionAbstraction(factual) {
   }
 
   const result={
-    primary_action_description:primaryAction,
-    interaction_description:interaction,
+    primary_action_description:translateToSocialMotionLanguage(primaryAction,factual),
+    interaction_description:translateToSocialMotionLanguage(interaction,factual),
   };
   console.log("[action abstraction]");
   console.log(JSON.stringify({
@@ -1647,7 +1829,10 @@ function buildShotPlan(factual, cameraGrammar, microMotion) {
   const openingVisual=speechOpening||silenceDirection||prioritizedOpening||[subject,environment].filter(usableFact).join(" in ")||subject;
   const actionAbstraction=buildActionAbstraction(factual);
   const staticPortrait=isStaticPortraitWithoutMotion(factual)&&!speechReliable;
-  const primaryAction=staticPortrait ? "" : (cleanFact(actionAbstraction.primary_action_description)||cleanFact(factual?.subject_motion)||cleanFact(factual?.visible_motion_cues)||cleanFact(factual?.pose_action)||"composed stillness holds the frame");
+  const primaryAction=staticPortrait ? "" : translateToSocialMotionLanguage(
+    cleanFact(actionAbstraction.primary_action_description)||cleanFact(factual?.subject_motion)||cleanFact(factual?.visible_motion_cues)||cleanFact(factual?.pose_action)||"composed stillness holds the frame",
+    factual
+  );
   const secondaryMotion=microMotion?.applied
     ? [cleanFact(actionAbstraction.interaction_description),cleanFact(microMotion.generated_layer)].filter(usableFact).join("; ")
     : (staticPortrait ? "" : cleanFact(factual?.environmental_motion)||"no supplemental motion");
@@ -1725,6 +1910,16 @@ function buildDirectorBrief(factual, cameraGrammar, microMotion, shotPlan) {
     cleanFact(factual?.social_platform_style),
     cleanFact(factual?.presentation_style),
     cleanFact(factual?.viewer_relationship),
+    cleanFact(factual?.creator_intent),
+    cleanFact(factual?.social_behavior),
+    cleanFact(factual?.pose_rhythm),
+    cleanFact(factual?.performance_pattern),
+    cleanFact(factual?.creator_confidence),
+    cleanFact(factual?.viewer_hook_style),
+    cleanFact(factual?.camera_style),
+    cleanFact(factual?.camera_energy),
+    cleanFact(factual?.camera_relationship),
+    cleanFact(factual?.viewer_perspective),
     cleanFact(factual?.temporal_opening),
     cleanFact(factual?.temporal_progression),
     cleanFact(factual?.temporal_continuity),
@@ -1770,17 +1965,18 @@ function buildDirectorBrief(factual, cameraGrammar, microMotion, shotPlan) {
     factual
   );
   const scene=cleanFact(semantic)||cleanFact(factual?.reel_type)||cleanFact(factual?.content_type);
-  const action=staticPortrait ? "" : rewriteSlotLanguage(
+  const action=staticPortrait ? "" : translateToSocialMotionLanguage(rewriteSlotLanguage(
     (!speechReliable&&silenceDirection ? silenceDirection : "")||
     (speechReliable ? cleanFact(actionAbstraction.primary_action_description) : "")||
+    cleanFact(creatorIntent.performance_pattern)||
     cleanFact(actionAbstraction.primary_action_description)||
     cleanFact(shotPlan?.primary_action)||
     cleanFact(factual?.pose_action),
     factual
-  );
+  ),factual);
   const camera=speechReliable
-    ? cleanFact(shotPlan?.camera_behavior)||"close vertical creator-facing framing"
-    : cleanFact(shotPlan?.camera_behavior)||cleanFact(cameraGrammar?.cameraMotion)||cleanFact(factual?.camera_motion);
+    ? cleanFact(socialCamera.camera_style)||cleanFact(shotPlan?.camera_behavior)||"close vertical creator-facing framing"
+    : cleanFact(socialCamera.camera_style)||cleanFact(shotPlan?.camera_behavior)||cleanFact(cameraGrammar?.cameraMotion)||cleanFact(factual?.camera_motion);
   const lighting=cleanFact(factual?.lighting);
   const environment=cleanFact(shotPlan?.environment_response)||cleanFact(factual?.environment)||cleanFact(factual?.surfaces);
   const mood=cleanFact(factual?.mood_atmosphere)||cleanFact(factual?.audience_intent);
@@ -1805,6 +2001,10 @@ function buildDirectorBrief(factual, cameraGrammar, microMotion, shotPlan) {
     cleanFact(factual?.performance_progression),
     cleanFact(factual?.attention_progression),
     cleanFact(factual?.focus_transition),
+    cleanFact(creatorIntent.pose_rhythm),
+    cleanFact(creatorIntent.performance_pattern),
+    cleanFact(creatorIntent.social_behavior),
+    cleanFact(socialCamera.camera_energy),
     cleanFact(microMotion?.generated_layer),
   ].filter(usableFact).join("; ");
   const visualGoal=[
@@ -1816,6 +2016,10 @@ function buildDirectorBrief(factual, cameraGrammar, microMotion, shotPlan) {
     cleanFact(factual?.creator_archetype),
     cleanFact(factual?.social_aesthetic),
     cleanFact(factual?.social_platform_style),
+    cleanFact(creatorIntent.creator_intent),
+    cleanFact(creatorIntent.viewer_hook_style),
+    cleanFact(creatorIntent.creator_confidence),
+    cleanFact(socialCamera.camera_relationship),
     cleanFact(factual?.hero_element),
     cleanFact(factual?.primary_object),
     cleanFact(factual?.product_identity),
@@ -1834,6 +2038,10 @@ function buildDirectorBrief(factual, cameraGrammar, microMotion, shotPlan) {
     cleanFact(factual?.temporal_progression),
     cleanFact(factual?.primary_visual_focus),
     cleanFact(factual?.attention_progression),
+    cleanFact(creatorIntent.creator_intent),
+    cleanFact(creatorIntent.viewer_hook_style),
+    cleanFact(creatorIntent.performance_pattern),
+    cleanFact(socialCamera.viewer_perspective),
     cleanFact(factual?.reel_type),
     cleanFact(factual?.audience_intent),
     cleanFact(factual?.workflow_domain),
@@ -1846,7 +2054,7 @@ function buildDirectorBrief(factual, cameraGrammar, microMotion, shotPlan) {
     lighting:rewriteSlotLanguage(lighting,factual),
     environment:rewriteSlotLanguage(environment,factual),
     mood:rewriteSlotLanguage(mood,factual),
-    motion:rewriteSlotLanguage(motion,factual),
+    motion:translateToSocialMotionLanguage(rewriteSlotLanguage(motion,factual),factual),
     creator_performance_mode:creatorPerformance.creator_performance_mode,
     speech_delivery_style:creatorPerformance.speech_delivery_style,
     audience_connection:creatorPerformance.audience_connection,
@@ -1875,6 +2083,16 @@ function buildDirectorBrief(factual, cameraGrammar, microMotion, shotPlan) {
     social_platform_style:rewriteSlotLanguage(factual?.social_platform_style,factual),
     presentation_style:rewriteSlotLanguage(factual?.presentation_style,factual),
     viewer_relationship:rewriteSlotLanguage(factual?.viewer_relationship,factual),
+    creator_intent:rewriteSlotLanguage(creatorIntent.creator_intent||factual?.creator_intent,factual),
+    social_behavior:rewriteSlotLanguage(creatorIntent.social_behavior||factual?.social_behavior,factual),
+    pose_rhythm:rewriteSlotLanguage(creatorIntent.pose_rhythm||factual?.pose_rhythm,factual),
+    performance_pattern:rewriteSlotLanguage(creatorIntent.performance_pattern||factual?.performance_pattern,factual),
+    creator_confidence:rewriteSlotLanguage(creatorIntent.creator_confidence||factual?.creator_confidence,factual),
+    viewer_hook_style:rewriteSlotLanguage(creatorIntent.viewer_hook_style||factual?.viewer_hook_style,factual),
+    camera_style:rewriteSlotLanguage(socialCamera.camera_style||factual?.camera_style,factual),
+    camera_energy:rewriteSlotLanguage(socialCamera.camera_energy||factual?.camera_energy,factual),
+    camera_relationship:rewriteSlotLanguage(socialCamera.camera_relationship||factual?.camera_relationship,factual),
+    viewer_perspective:rewriteSlotLanguage(socialCamera.viewer_perspective||factual?.viewer_perspective,factual),
     temporal_opening:rewriteSlotLanguage(factual?.temporal_opening,factual),
     temporal_progression:rewriteSlotLanguage(factual?.temporal_progression,factual),
     temporal_continuity:rewriteSlotLanguage(factual?.temporal_continuity,factual),
@@ -1976,6 +2194,15 @@ const FRAMEWORK_LANGUAGE_PATTERNS=[
   {pattern:/\bvisual priority flow\b/gi,replacement:"visual emphasis"},
   {pattern:/\batmosphere remains\b/gi,replacement:"the atmosphere feels"},
   {pattern:/\bgrounded visible motion\b/gi,replacement:"visible motion"},
+  {pattern:/\bvisual posing\b/gi,replacement:"creator-style posing"},
+  {pattern:/\brelaxed movement\b/gi,replacement:"relaxed creator movement"},
+  {pattern:/\brealistic movement\b/gi,replacement:"creator-style movement"},
+  {pattern:/\bnatural realism\b/gi,replacement:"natural reel energy"},
+  {pattern:/\bsubject motion\b/gi,replacement:"creator movement"},
+  {pattern:/\bsemantic scene\b/gi,replacement:"scene"},
+  {pattern:/\benvironmental response\b/gi,replacement:"background detail"},
+  {pattern:/\bgrounded movement\b/gi,replacement:"creator movement"},
+  {pattern:/\brealistic behavior\b/gi,replacement:"creator behavior"},
   {pattern:/\binformative professional engaging\b/gi,replacement:"confident and direct"},
   {pattern:/\bphysically plausible\b/gi,replacement:"realistic"},
   {pattern:/\bmaterial interaction\b/gi,replacement:"surface detail"},
@@ -2119,6 +2346,9 @@ function compressStage2Assembly({
     creator_archetype:compactContext?.creator_archetype,
     reel_energy:compactContext?.reel_energy,
     dance_energy:compactContext?.dance_energy,
+    creator_intent:compactContext?.creator_intent,
+    pose_rhythm:compactContext?.pose_rhythm,
+    camera_style:compactContext?.camera_style,
     primary_object:compactContext?.primary_object,
     hero_element:compactContext?.hero_element,
     overlay_topic:compactContext?.overlay_topic,
@@ -2225,6 +2455,18 @@ function rewriteAsGenerativeVisualLanguage(platform, prompt) {
     .replace(/\bperson indoors\b/gi,"creator indoors")
     .replace(/\brealistic movements\b/gi,"natural creator movement")
     .replace(/\bnatural motion\b/gi,"creator-style movement")
+    .replace(/\bvisual posing\b/gi,"creator-style posing")
+    .replace(/\brelaxed movement\b/gi,"relaxed creator movement")
+    .replace(/\bnatural realism\b/gi,"natural reel energy")
+    .replace(/\bsubject motion\b/gi,"creator movement")
+    .replace(/\bsemantic scene\b/gi,"scene")
+    .replace(/\bsupplemental realism\b/gi,"natural creator detail")
+    .replace(/\benvironmental response\b/gi,"background detail")
+    .replace(/\bgrounded movement\b/gi,"creator movement")
+    .replace(/\brealistic behavior\b/gi,"creator behavior")
+    .replace(/\bhead moves left\b/gi,"she turns naturally into the next creator-style pose")
+    .replace(/\bright hand moves to hip\b/gi,"her hand settles confidently into an outfit-check stance")
+    .replace(/\bsubject shifts posture\b/gi,"she transitions smoothly through relaxed creator poses")
     .replace(/\bcalm ambiance\b/gi,"natural creator presence")
     .replace(/\bmaterial response\b/gi,"surface detail")
     .replace(/\bdefine her form\b/gi,"gently light her outfit")
@@ -2336,6 +2578,7 @@ function platformTargetWordLimit(platform) {
 function finalPromptPolish(platform, prompt, brief={}, factual={}) {
   const before=String(prompt||"").trim();
   let text=rewriteAsGenerativeVisualLanguage(platform,before);
+  text=translateToSocialMotionLanguage(text,factual);
   text=strengthenCreatorPerformanceLanguage(platform,text,brief,factual);
   text=applySilenceDirectionToPrompt(text,factual);
   text=deduplicatePromptLanguage(text)
@@ -2436,6 +2679,49 @@ function validateSocialVideoAuthenticity(prompt, factual={}) {
   return {creatorRealismScore,stockFootageRisk,speechHallucinationRisk,socialVideoEnergy,staticCameraUsage};
 }
 
+function validateCreatorPerformanceRecreation(prompt, factual={}, brief={}) {
+  const text=String(prompt||"");
+  const lower=text.toLowerCase();
+  const analytical=[
+    "visual posing","realistic movement","natural realism","subject motion","semantic scene",
+    "supplemental realism","environmental response","grounded movement","realistic behavior",
+  ].filter(phrase=>lower.includes(phrase));
+  const stock=[
+    "adult female","slender female","professional woman","average build","generic person","stock footage",
+  ].filter(phrase=>lower.includes(phrase));
+  const creatorIntentStrength=clampQualityScore([
+    cleanFact(brief?.creator_intent),
+    cleanFact(factual?.creator_intent),
+    /\b(outfit-check|creator intent|speaking|presenting|showcasing|performance|reel)\b/i.test(text) ? "x" : "",
+  ].filter(usableFact).length*3);
+  const socialMotionQuality=clampQualityScore([
+    /\b(creator-style|outfit-check|rhythmic|pose transition|camera-aware|social-video|music-driven|conversational)\b/i.test(text) ? "x" : "",
+    cleanFact(brief?.pose_rhythm),
+    cleanFact(factual?.pose_rhythm),
+  ].filter(usableFact).length*3);
+  const creatorCadence=clampQualityScore([
+    /\b(cadence|rhythm|reel|vertical|viewer|phone camera|instagram|tiktok|short-form)\b/i.test(text) ? "x" : "",
+    cleanFact(brief?.viewer_hook_style),
+    cleanFact(factual?.viewer_hook_style),
+  ].filter(usableFact).length*3);
+  const stockFootageRisk=clampQualityScore(stock.length*3+(/\b(static camera|cinematic shot|locked-off)\b/i.test(text)?2:0));
+  console.log("[creator performance recreation]");
+  console.log(JSON.stringify({
+    creatorIntentStrength,
+    socialMotionQuality,
+    creatorCadence,
+    stockFootageRisk,
+    analyticalLanguageDetected:analytical,
+  },null,2));
+  return {
+    creatorIntentStrength,
+    socialMotionQuality,
+    creatorCadence,
+    stockFootageRisk,
+    analyticalLanguageDetected:analytical,
+  };
+}
+
 function validateFinalPromptCraft(platform, prompt) {
   const text=normalizePromptSentences(prompt);
   const lower=text.toLowerCase();
@@ -2446,6 +2732,8 @@ function validateFinalPromptCraft(platform, prompt) {
     "semantic focus","workflow focus","visual priority flow","attention progression",
     "focus transition","generation intent","scene purpose","physically plausible",
     "material interaction","environment response","grounded visible motion",
+    "visual posing","subject motion","supplemental realism","grounded movement",
+    "realistic behavior","semantic scene",
   ].filter(phrase=>lower.includes(phrase));
   const repetitionDetected=repeatedWordCount(text)>=6||repeatedSentenceStarts(text)>0;
   const robotic=validatePromptNaturalness(platform,text);
@@ -3017,6 +3305,16 @@ function buildMasterPromptFromBrief(brief) {
   const focusTransition=cleanFact(brief?.focus_transition);
   const cameraIntention=cleanFact(brief?.camera_intention);
   const visualPriorityFlow=cleanFact(brief?.visual_priority_flow);
+  const creatorIntent=cleanFact(brief?.creator_intent);
+  const socialBehavior=cleanFact(brief?.social_behavior);
+  const poseRhythm=cleanFact(brief?.pose_rhythm);
+  const performancePattern=cleanFact(brief?.performance_pattern);
+  const creatorConfidence=cleanFact(brief?.creator_confidence);
+  const viewerHookStyle=cleanFact(brief?.viewer_hook_style);
+  const cameraStyle=cleanFact(brief?.camera_style);
+  const cameraEnergy=cleanFact(brief?.camera_energy);
+  const cameraRelationship=cleanFact(brief?.camera_relationship);
+  const viewerPerspective=cleanFact(brief?.viewer_perspective);
   const silenceDirection=cleanFact(brief?.silence_direction);
   const creatorPerformanceMode=cleanFact(brief?.creator_performance_mode);
   const speechDeliveryStyle=cleanFact(brief?.speech_delivery_style);
@@ -3034,18 +3332,26 @@ function buildMasterPromptFromBrief(brief) {
     speechDeliveryStyle ? `${speechDeliveryStyle}.` : "",
     audienceConnection ? `${audienceConnection}.` : "",
     creatorEnergy ? `${creatorEnergy}.` : "",
+    creatorIntent ? `${creatorIntent}.` : "",
+    socialBehavior ? `${socialBehavior}.` : "",
+    viewerHookStyle ? `${viewerHookStyle}.` : "",
     reelEnergy ? `${reelEnergy}.` : "",
     danceEnergy ? `${danceEnergy}.` : "",
     creatorArchetype ? `${creatorArchetype}.` : "",
     temporalOpening ? `${temporalOpening}.` : "",
     performanceStyle ? `${performanceStyle}.` : "",
     presentationStyle ? `${presentationStyle}.` : "",
+    performancePattern ? `${performancePattern}.` : "",
+    creatorConfidence ? `${creatorConfidence}.` : "",
     bodyMotionStyle ? `${bodyMotionStyle}.` : "",
     `${subject} ${action}.`,
     conversationPresence ? `${conversationPresence}.` : "",
     microphoneImportance ? `${microphoneImportance}.` : "",
     primaryVisualFocus ? `Prioritize ${primaryVisualFocus}.` : "",
-    `Frame with ${camera}.`,
+    `Frame with ${cameraStyle||camera}.`,
+    cameraEnergy ? `${cameraEnergy}.` : "",
+    cameraRelationship ? `${cameraRelationship}.` : "",
+    viewerPerspective ? `${viewerPerspective}.` : "",
     cameraIntention ? `${cameraIntention}.` : "",
     cameraEngagement ? `${cameraEngagement}.` : creatorPresence ? `${creatorPresence}.` : cameraPresence ? `${cameraPresence}.` : "",
     `${lighting} shapes the subject and keeps details readable.`,
@@ -3057,6 +3363,7 @@ function buildMasterPromptFromBrief(brief) {
     attentionProgression ? `${attentionProgression}.` : "",
     focusTransition ? `${focusTransition}.` : "",
     motionRhythm ? `${motionRhythm}.` : "",
+    poseRhythm ? `${poseRhythm}.` : "",
     mood ? `Maintain ${mood}.` : "",
     contentPersonality ? `Keep the creator personality ${contentPersonality}.` : "",
     socialAesthetic ? `Carry ${socialAesthetic}.` : "",
@@ -3146,7 +3453,7 @@ function buildPromptSlots(platform, shotPlan, factual) {
     visual_finish:"VISUAL_FINISH",
   };
   const populatedSlots=slotOrder
-    .map(key=>({key,label:labels[key]||key.toUpperCase(),value:rewriteSlotLanguage(shotPlan?.[key],factual)}))
+    .map(key=>({key,label:labels[key]||key.toUpperCase(),value:translateToSocialMotionLanguage(rewriteSlotLanguage(shotPlan?.[key],factual),factual)}))
     .filter(slot=>usableFact(slot.value));
   const totalWords=populatedSlots.reduce((sum,slot)=>sum+wordCount(slot.value),0)||1;
   const envSlot=populatedSlots.find(slot=>slot.label==="ENVIRONMENT_RESPONSE");
@@ -3202,6 +3509,16 @@ function buildStage2Context(factual, shotPlan, promptSlots, promptComponents={},
     social_platform_style:cleanFact(factual?.social_platform_style),
     presentation_style:cleanFact(factual?.presentation_style),
     viewer_relationship:cleanFact(factual?.viewer_relationship),
+    creator_intent:cleanFact(factual?.creator_intent),
+    social_behavior:cleanFact(factual?.social_behavior),
+    pose_rhythm:cleanFact(factual?.pose_rhythm),
+    performance_pattern:cleanFact(factual?.performance_pattern),
+    creator_confidence:cleanFact(factual?.creator_confidence),
+    viewer_hook_style:cleanFact(factual?.viewer_hook_style),
+    camera_style:cleanFact(factual?.camera_style),
+    camera_energy:cleanFact(factual?.camera_energy),
+    camera_relationship:cleanFact(factual?.camera_relationship),
+    viewer_perspective:cleanFact(factual?.viewer_perspective),
     temporal_opening:cleanFact(factual?.temporal_opening),
     temporal_progression:cleanFact(factual?.temporal_progression),
     temporal_continuity:cleanFact(factual?.temporal_continuity),
@@ -3444,13 +3761,13 @@ function buildPromptComponents(factual) {
   if(usableFact(factual?.ambient_audio)) audioParts.push(cleanFact(factual.ambient_audio));
   return {
     subject:component(factual?.creator_archetype,factual?.hero_element,factual?.primary_object,factual?.product_identity,factual?.subjects,factual?.face),
-    action:component(factual?.presentation_style,action.primary_action_description,factual?.pose_action),
-    camera:component(factual?.camera_intention,factual?.camera_motion,factual?.lens_feel),
+    action:component(factual?.creator_intent,factual?.performance_pattern,factual?.presentation_style,action.primary_action_description,factual?.pose_action),
+    camera:component(factual?.camera_style,factual?.camera_energy,factual?.camera_relationship,factual?.viewer_perspective,factual?.camera_intention,factual?.camera_motion,factual?.lens_feel),
     environment:component(factual?.environment,factual?.surfaces),
     lighting:component(factual?.lighting),
-    atmosphere:component(factual?.creator_archetype,factual?.social_platform_style,factual?.content_personality,factual?.dance_energy,factual?.reel_energy,factual?.social_aesthetic,factual?.viewer_feeling,factual?.mood_atmosphere),
-    motion:component(factual?.attention_progression,factual?.focus_transition,factual?.body_motion_style,factual?.motion_rhythm,factual?.movement_density,factual?.motion_style,factual?.subject_motion,factual?.visible_motion_cues,factual?.inferred_motion,factual?.environmental_motion,factual?.music_sync_energy,factual?.beat_sync_strength,factual?.temporal_progression,factual?.performance_progression),
-    temporal:component(factual?.temporal_opening,factual?.temporal_progression,factual?.temporal_continuity,factual?.moment_flow,factual?.scene_evolution,factual?.performance_progression,factual?.visual_priority_flow,factual?.movement_continuity,factual?.performance_style,factual?.visible_motion_cues,factual?.scene_purpose,factual?.activity_context),
+    atmosphere:component(factual?.creator_archetype,factual?.social_platform_style,factual?.content_personality,factual?.creator_confidence,factual?.viewer_hook_style,factual?.dance_energy,factual?.reel_energy,factual?.social_aesthetic,factual?.viewer_feeling,factual?.mood_atmosphere),
+    motion:translateToSocialMotionLanguage(component(factual?.pose_rhythm,factual?.social_behavior,factual?.attention_progression,factual?.focus_transition,factual?.body_motion_style,factual?.motion_rhythm,factual?.movement_density,factual?.motion_style,factual?.subject_motion,factual?.visible_motion_cues,factual?.inferred_motion,factual?.environmental_motion,factual?.music_sync_energy,factual?.beat_sync_strength,factual?.temporal_progression,factual?.performance_progression),factual),
+    temporal:component(factual?.temporal_opening,factual?.temporal_progression,factual?.temporal_continuity,factual?.moment_flow,factual?.scene_evolution,factual?.performance_progression,factual?.visual_priority_flow,factual?.movement_continuity,factual?.pose_rhythm,factual?.performance_style,factual?.visible_motion_cues,factual?.scene_purpose,factual?.activity_context),
     audio:audioParts.join("; "),
     emotion:component(factual?.viewer_relationship,factual?.creator_presence,factual?.performance_intensity,factual?.viewer_feeling,factual?.camera_engagement,factual?.camera_presence,factual?.mood_atmosphere,factual?.speaker_intent),
     finish:component(factual?.primary_visual_focus,factual?.secondary_visual_focus,factual?.visual_priority_flow,factual?.lens_feel,factual?.color_palette,factual?.lighting),
@@ -4041,6 +4358,7 @@ async function generatePlatformField({field,label,systemPrompt,prompt,dbg}) {
       validateFinalPromptCraft(field,value);
       validateCreatorPerformancePrompt(field,value,promptContext.brief||{},promptContext.factual||{});
       validateSocialVideoAuthenticity(value,promptContext.factual||{});
+      validateCreatorPerformanceRecreation(value,promptContext.factual||{},promptContext.brief||{});
       promptAssemblyContextCache.delete(field);
       if(value.length<20) throw new Error(`${field}: empty or too short`);
       console.log(`[${label} generation ms] ${Date.now()-started}`);
@@ -5169,6 +5487,16 @@ function normalizeStage1Facts(factual) {
   normalized.focus_transition=typeof normalized.focus_transition==="string" ? normalized.focus_transition : "";
   normalized.camera_intention=typeof normalized.camera_intention==="string" ? normalized.camera_intention : "";
   normalized.visual_priority_flow=typeof normalized.visual_priority_flow==="string" ? normalized.visual_priority_flow : "";
+  normalized.creator_intent=typeof normalized.creator_intent==="string" ? normalized.creator_intent : "";
+  normalized.social_behavior=typeof normalized.social_behavior==="string" ? normalized.social_behavior : "";
+  normalized.pose_rhythm=typeof normalized.pose_rhythm==="string" ? normalized.pose_rhythm : "";
+  normalized.performance_pattern=typeof normalized.performance_pattern==="string" ? normalized.performance_pattern : "";
+  normalized.creator_confidence=typeof normalized.creator_confidence==="string" ? normalized.creator_confidence : "";
+  normalized.viewer_hook_style=typeof normalized.viewer_hook_style==="string" ? normalized.viewer_hook_style : "";
+  normalized.camera_style=typeof normalized.camera_style==="string" ? normalized.camera_style : "";
+  normalized.camera_energy=typeof normalized.camera_energy==="string" ? normalized.camera_energy : "";
+  normalized.camera_relationship=typeof normalized.camera_relationship==="string" ? normalized.camera_relationship : "";
+  normalized.viewer_perspective=typeof normalized.viewer_perspective==="string" ? normalized.viewer_perspective : "";
   normalized.scene_purpose=typeof normalized.scene_purpose==="string" ? normalized.scene_purpose : "";
   normalized.activity_context=typeof normalized.activity_context==="string" ? normalized.activity_context : "";
   normalized.content_theme=typeof normalized.content_theme==="string" ? normalized.content_theme : "";
@@ -5689,6 +6017,14 @@ async function deriveReelType(factual,dbg) {
     "animal_content",
     "dance_performance",
     "music_performance",
+    "fashion_outfit_check",
+    "beauty_pose_reel",
+    "creator_selfie_reel",
+    "podcast_creator_reel",
+    "motivational_creator_reel",
+    "lifestyle_creator_reel",
+    "influencer_pose_reel",
+    "social_dance_reel",
     "cinematic_broll",
     "other",
   ];
@@ -5752,6 +6088,53 @@ Return:
       return "other";
     }
     const previousType=allowed.includes(reelType) ? reelType : "other";
+    const creatorEvidence=[
+      safeFacts.scene_purpose,
+      safeFacts.activity_context,
+      safeFacts.content_theme,
+      safeFacts.subjects,
+      safeFacts.clothing_top,
+      safeFacts.clothing_bottom,
+      safeFacts.pose_action,
+      safeFacts.visible_motion_cues,
+      safeFacts.subject_motion,
+      safeFacts.inferred_motion,
+      safeFacts.environment,
+      safeFacts.accessories,
+      safeFacts.overlay_topic,
+      safeFacts.spoken_topic,
+      safeFacts.speaker_intent,
+    ].join(" ").toLowerCase();
+    const classificationOverride=(newType,reason)=>{
+      if(previousType!==newType) {
+        console.log("[classification override]");
+        console.log(JSON.stringify({previousType,newType,reason},null,2));
+      }
+      return newType;
+    };
+    if(safeFacts.content_type==="human_scene") {
+      if(/\b(dance|dancing|rhythm|beat|music-driven|full-body performance)\b/.test(creatorEvidence)) {
+        return classificationOverride("social_dance_reel","dance-like creator motion evidence");
+      }
+      if(/\b(podcast|microphone|studio mic|speaking into|conversation|motivational)\b/.test(creatorEvidence)) {
+        return classificationOverride(/\bmotivational|motivation\b/.test(creatorEvidence) ? "motivational_creator_reel" : "podcast_creator_reel","speech or podcast creator evidence");
+      }
+      if(/\b(outfit|fit check|outfit-check|styling|clothing|hands on hips|mirror)\b/.test(creatorEvidence)) {
+        return classificationOverride("fashion_outfit_check","outfit-focused creator pose evidence");
+      }
+      if(/\b(beauty|makeup|skincare|hair|glam|portrait pose)\b/.test(creatorEvidence)) {
+        return classificationOverride("beauty_pose_reel","beauty portrait creator evidence");
+      }
+      if(/\b(selfie|phone camera|direct eye contact|camera-aware|viewer-facing)\b/.test(creatorEvidence)) {
+        return classificationOverride("creator_selfie_reel","creator-camera relationship evidence");
+      }
+      if(/\b(influencer|pose|posing|creator-style|social-media)\b/.test(creatorEvidence)) {
+        return classificationOverride("influencer_pose_reel","social posing behavior evidence");
+      }
+      if(/\b(lifestyle|casual|daily|vlog|home|outdoor)\b/.test(creatorEvidence)&&previousType==="other") {
+        return classificationOverride("lifestyle_creator_reel","lifestyle creator context");
+      }
+    }
     const healthcareEvidence=/\b(medical|healthcare|health professional|doctor|nurse|clinician)\b/i.test([
       safeFacts.scene_purpose,
       safeFacts.activity_context,
@@ -6493,6 +6876,20 @@ async function runAnalysis(images,mediaType,dbg,stylePreset,audioPayload={}) {
   stage1Facts.presentation_style=creatorArchetype.presentation_style||"";
   stage1Facts.viewer_relationship=creatorArchetype.viewer_relationship||"";
   dbg.log("creator archetype","Stage1 creator archetype fields",creatorArchetype);
+  const creatorIntent=deriveCreatorIntentIntelligence(stage1Facts);
+  stage1Facts.creator_intent=creatorIntent.creator_intent||"";
+  stage1Facts.social_behavior=creatorIntent.social_behavior||"";
+  stage1Facts.pose_rhythm=creatorIntent.pose_rhythm||"";
+  stage1Facts.performance_pattern=creatorIntent.performance_pattern||"";
+  stage1Facts.creator_confidence=creatorIntent.creator_confidence||"";
+  stage1Facts.viewer_hook_style=creatorIntent.viewer_hook_style||"";
+  dbg.log("creator intent intelligence","Stage1 creator intent fields",creatorIntent);
+  const socialCamera=deriveSocialCameraIntelligence(stage1Facts);
+  stage1Facts.camera_style=socialCamera.camera_style||"";
+  stage1Facts.camera_energy=socialCamera.camera_energy||"";
+  stage1Facts.camera_relationship=socialCamera.camera_relationship||"";
+  stage1Facts.viewer_perspective=socialCamera.viewer_perspective||"";
+  dbg.log("social camera intelligence","Stage1 social camera fields",socialCamera);
   const temporalProgression=deriveTemporalReelProgression(stage1Facts);
   stage1Facts.temporal_opening=temporalProgression.temporal_opening||"";
   stage1Facts.temporal_progression=temporalProgression.temporal_progression||"";
