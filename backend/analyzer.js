@@ -1632,6 +1632,35 @@ function deriveSocialCameraIntelligence(factual) {
   return result;
 }
 
+function safeSocialCameraIntelligence(factual) {
+  let socialCameraIntelligence={};
+  try {
+    socialCameraIntelligence=deriveSocialCameraIntelligence(factual)||{};
+  } catch(error) {
+    console.warn("[social camera validation]");
+    console.warn(JSON.stringify({
+      defined:false,
+      hasCameraStyle:false,
+      hasCameraEnergy:false,
+      error:error?.message||String(error),
+    },null,2));
+    socialCameraIntelligence={};
+  }
+  const socialCamera=socialCameraIntelligence||{};
+  console.log("[social camera validation]");
+  console.log(JSON.stringify({
+    defined:true,
+    hasCameraStyle:usableFact(socialCamera.camera_style),
+    hasCameraEnergy:usableFact(socialCamera.camera_energy),
+  },null,2));
+  return {
+    camera_style:cleanFact(socialCamera.camera_style),
+    camera_energy:cleanFact(socialCamera.camera_energy),
+    camera_relationship:cleanFact(socialCamera.camera_relationship),
+    viewer_perspective:cleanFact(socialCamera.viewer_perspective),
+  };
+}
+
 function buildSilenceDirection(factual) {
   const audioType=cleanFact(factual?.audio_type).toLowerCase()||"none";
   if(audioType!=="none") return "";
@@ -1701,7 +1730,8 @@ function buildActionAbstraction(factual) {
   const speechReliable=reliableSpeechPresent(factual);
   const creatorPerformance=deriveCreatorPerformanceMode(factual);
   const creatorIntent=deriveCreatorIntentIntelligence(factual);
-  const socialCamera=deriveSocialCameraIntelligence(factual);
+  const socialCameraIntelligence=safeSocialCameraIntelligence(factual);
+  const socialCamera=socialCameraIntelligence||{};
   const mic=microphoneDetected(factual);
   const silenceDirection=resolveSilenceDirection(factual);
   const speechLanguage=cleanFact(factual?.speech_language);
@@ -6884,7 +6914,8 @@ async function runAnalysis(images,mediaType,dbg,stylePreset,audioPayload={}) {
   stage1Facts.creator_confidence=creatorIntent.creator_confidence||"";
   stage1Facts.viewer_hook_style=creatorIntent.viewer_hook_style||"";
   dbg.log("creator intent intelligence","Stage1 creator intent fields",creatorIntent);
-  const socialCamera=deriveSocialCameraIntelligence(stage1Facts);
+  const socialCameraIntelligence=safeSocialCameraIntelligence(stage1Facts);
+  const socialCamera=socialCameraIntelligence||{};
   stage1Facts.camera_style=socialCamera.camera_style||"";
   stage1Facts.camera_energy=socialCamera.camera_energy||"";
   stage1Facts.camera_relationship=socialCamera.camera_relationship||"";
