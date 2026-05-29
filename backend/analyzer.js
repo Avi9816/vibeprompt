@@ -5336,9 +5336,21 @@ async function generateVideoPromptsByPlatform(factual,stylePreset,dbg,generation
     generatePikaPrompt(factual,stylePreset,dbg,generationMode),
     generateKeyframePrompt(factual,stylePreset,dbg),
   ].map(settle));
-  const failed=results.find(r=>!r.ok);
+  const platformResults=results.slice(0,5);
+  const keyframeResult=results[5];
+  const failed=platformResults.find(r=>!r.ok);
   if(failed) throw failed.error;
-  const [runway,sora,kling,veo,pika,keyframe]=results.map(r=>r.value);
+  const [runway,sora,kling,veo,pika]=platformResults.map(r=>r.value);
+  const keyframe=keyframeResult?.ok ? keyframeResult.value : "";
+  const keyframeOptionalLog={
+    generated:Boolean(keyframeResult?.ok&&keyframe),
+    failed:Boolean(keyframeResult&&!keyframeResult.ok),
+    reason:keyframeResult?.ok ? "" : (keyframeResult?.error?.message||String(keyframeResult?.error||"keyframe generation failed")),
+    videoGenerationSucceeded:true,
+  };
+  console.warn("[keyframe optional mode]");
+  console.warn(JSON.stringify(keyframeOptionalLog,null,2));
+  if(keyframeOptionalLog.failed) dbg.err("Keyframe","Optional keyframe generation failed",keyframeResult.error);
   const master_prompt=buildMasterPrompt(factual,stylePreset,generationMode);
 
   const prompts={
@@ -5697,7 +5709,7 @@ function expectedPromptFields(mediaType) {
     ? ["runway","sora","pika","kling","veo"]
     : ["flux","midjourney","nano_banana","imagen","recraft","sdxl"];
   return isVideo
-    ? [...platformFields,"keyframe","negative","camera_spec","style_tags"]
+    ? [...platformFields,"negative","camera_spec","style_tags"]
     : [...platformFields,"negative","camera_spec","style_tags"];
 }
 
@@ -7102,7 +7114,7 @@ function validatePrompts(parsed, mediaType) {
     ? ["runway","sora","pika","kling","veo"]
     : ["flux","midjourney","nano_banana","imagen","recraft","sdxl"];
   const requiredFields = isVideo
-    ? [...promptFields, "keyframe", "negative", "camera_spec", "style_tags"]
+    ? [...promptFields, "negative", "camera_spec", "style_tags"]
     : [...promptFields, "negative", "camera_spec", "style_tags"];
 
   for (const field of requiredFields) {
