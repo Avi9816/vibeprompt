@@ -4585,6 +4585,16 @@ async function generatePlatformField({field,label,systemPrompt,prompt,dbg}) {
           assembly=inspectStage2Assembly(activePrompt);
         }
         if(!stage2AssemblyReady(activePrompt)) {
+          logPromptFailureDiagnostics("stage2 assembly missing before platform generation",{
+            mediaType:"video",
+            stage:"generatePlatformField",
+            attempt,
+            field,
+            prompt:activePrompt,
+            factual:promptContext.factual,
+            assembly,
+            error:`${field}: Stage2 assembly missing required modern modules`,
+          });
           throw new Error(`${field}: Stage2 assembly missing required modern modules`);
         }
       }
@@ -4621,11 +4631,32 @@ async function generatePlatformField({field,label,systemPrompt,prompt,dbg}) {
       validateCreatorPerformanceRecreation(value,promptContext.factual||{},promptContext.brief||{});
       recordPromptStage("generatedPlatformPrompt",activePrompt,value,{platform:field,durationMs:Date.now()-started,enabled:true});
       promptAssemblyContextCache.delete(field);
-      if(value.length<20) throw new Error(`${field}: empty or too short`);
+      if(value.length<20) {
+        logPromptFailureDiagnostics("platform prompt empty or too short",{
+          mediaType:isModernVideoPlatform(field) ? "video" : "image",
+          stage:"generatePlatformField",
+          attempt,
+          field,
+          prompt:activePrompt,
+          raw,
+          value,
+          factual:promptContext.factual,
+          assembly,
+          error:`${field}: empty or too short`,
+        });
+        throw new Error(`${field}: empty or too short`);
+      }
       console.log(`[${label} generation ms] ${Date.now()-started}`);
       return value;
     } catch(e) {
       lastErr=e;
+      logPromptFailureDiagnostics("platform generation attempt rejected",{
+        mediaType:isModernVideoPlatform(field) ? "video" : "image",
+        stage:"generatePlatformField",
+        attempt,
+        field,
+        error:e?.stack||e?.message||String(e),
+      });
       dbg.err(label,`Attempt ${attempt} rejected`,e);
       if(attempt<2) dbg.log(label,"Retrying generation once with same grounded inputs");
     }
@@ -5340,6 +5371,23 @@ async function generateVideoPromptsWithRetry(factual,stylePreset,mediaType,dbg) 
       const issues=validatePrompts({factual,prompts},mediaType);
       if(issues.length) {
         logStage2Debug(`validation errors attempt ${attempt}`,issues);
+        logPromptValidationDetails({
+          mediaType,
+          stage:"generateVideoPromptsWithRetry",
+          attempt,
+          prompts,
+          factual,
+          issues,
+        });
+        logPromptFailureDiagnostics("video prompt validation failed before retry throw",{
+          mediaType,
+          stage:"generateVideoPromptsWithRetry",
+          attempt,
+          prompts,
+          factual,
+          issues,
+          error:`Prompt validation failed: ${issues.join("; ")}`,
+        });
         throw new Error(`Prompt validation failed: ${issues.join("; ")}`);
       }
       return prompts;
@@ -5349,6 +5397,12 @@ async function generateVideoPromptsWithRetry(factual,stylePreset,mediaType,dbg) 
       if(attempt<2) dbg.log("Stage2","Retrying platform generation once with same grounded inputs");
     }
   }
+  logPromptFailureDiagnostics("video prompt generation incomplete diagnostic return",{
+    mediaType,
+    stage:"generateVideoPromptsWithRetry",
+    factual,
+    error:lastErr?.stack||lastErr?.message||"Stage2 failed",
+  });
   return diagnostic("Prompt generation incomplete",lastErr?.message||"Stage2 failed",dbg,mediaType);
 }
 
@@ -5542,6 +5596,23 @@ async function generateImagePromptsWithRetry(factual,stylePreset,mediaType,dbg) 
       const issues=validatePrompts({factual,prompts},mediaType);
       if(issues.length) {
         logStage2Debug(`image validation errors attempt ${attempt}`,issues);
+        logPromptValidationDetails({
+          mediaType,
+          stage:"generateImagePromptsWithRetry",
+          attempt,
+          prompts,
+          factual,
+          issues,
+        });
+        logPromptFailureDiagnostics("image prompt validation failed before retry throw",{
+          mediaType,
+          stage:"generateImagePromptsWithRetry",
+          attempt,
+          prompts,
+          factual,
+          issues,
+          error:`Prompt validation failed: ${issues.join("; ")}`,
+        });
         throw new Error(`Prompt validation failed: ${issues.join("; ")}`);
       }
       return prompts;
@@ -5551,6 +5622,12 @@ async function generateImagePromptsWithRetry(factual,stylePreset,mediaType,dbg) 
       if(attempt<2) dbg.log("Stage2","Retrying image platform generation once with same grounded inputs");
     }
   }
+  logPromptFailureDiagnostics("image prompt generation incomplete diagnostic return",{
+    mediaType,
+    stage:"generateImagePromptsWithRetry",
+    factual,
+    error:lastErr?.stack||lastErr?.message||"Stage2 failed",
+  });
   return diagnostic("Prompt generation incomplete",lastErr?.message||"Stage2 failed",dbg,mediaType);
 }
 
@@ -5566,6 +5643,14 @@ function repairJSON(text) {
 function extractJSON(text,stage) {
   const r=repairJSON(text);
   if(r) return r;
+  if(stage==="Stage2") {
+    logPromptFailureDiagnostics("Stage2 invalid JSON before throw",{
+      mediaType:"",
+      stage:"extractJSON",
+      raw:text,
+      error:`${stage} invalid JSON`,
+    });
+  }
   throw new Error(`${stage} invalid JSON. Preview: ${text.slice(0,300)}`);
 }
 
@@ -5604,6 +5689,149 @@ function logStage2Debug(label,value) {
   console.log(`\n[Stage2 ${label}]`);
   if(typeof value==="string") console.log(value);
   else console.log(JSON.stringify(value,null,2));
+}
+
+function expectedPromptFields(mediaType) {
+  const isVideo=mediaType==="video";
+  const platformFields=isVideo
+    ? ["runway","sora","pika","kling","veo"]
+    : ["flux","midjourney","nano_banana","imagen","recraft","sdxl"];
+  return isVideo
+    ? [...platformFields,"keyframe","negative","camera_spec","style_tags"]
+    : [...platformFields,"negative","camera_spec","style_tags"];
+}
+
+function promptValueLength(value) {
+  if(Array.isArray(value)) return JSON.stringify(value).length;
+  if(value&&typeof value==="object") return JSON.stringify(value).length;
+  return String(value||"").length;
+}
+
+function collectPromptFailureDiagnostics({
+  mediaType,
+  parsed,
+  prompts,
+  factual,
+  issues=[],
+  stage="",
+  attempt=null,
+  field="",
+  error="",
+  prompt="",
+  raw="",
+  value="",
+  assembly=null,
+}={}) {
+  const resolvedPrompts=prompts||parsed?.prompts||parsed||{};
+  const resolvedFactual=factual||parsed?.factual||parsed?.analysis||{};
+  const expectedPlatforms=expectedPromptFields(mediaType);
+  const promptKeys=Object.keys(resolvedPrompts||{});
+  const generatedPlatforms=expectedPlatforms.filter(key=>{
+    const val=resolvedPrompts?.[key];
+    if(Array.isArray(val)) return val.length>0&&val.every(item=>String(item||"").trim());
+    return String(val||"").trim().length>0;
+  });
+  const missingPlatforms=expectedPlatforms.filter(key=>{
+    const val=resolvedPrompts?.[key];
+    if(Array.isArray(val)) return val.length===0||val.some(item=>!String(item||"").trim());
+    return String(val||"").trim().length===0;
+  });
+  const promptLengths={};
+  for(const key of Array.from(new Set([...expectedPlatforms,...promptKeys]))) {
+    promptLengths[key]=promptValueLength(resolvedPrompts?.[key]);
+  }
+  return {
+    stage,
+    attempt,
+    field,
+    mediaType,
+    expectedPlatforms,
+    generatedPlatforms,
+    missingPlatforms,
+    promptKeys,
+    promptLengths,
+    issues,
+    error,
+    promptChars:promptValueLength(prompt),
+    rawChars:promptValueLength(raw),
+    valueChars:promptValueLength(value),
+    factualKeys:Object.keys(resolvedFactual||{}),
+    actualRuntimeFields:{
+      content_type:resolvedFactual?.content_type||"",
+      reel_type:resolvedFactual?.reel_type||"",
+      audio_type:resolvedFactual?.audio_type||"",
+      speech_present:resolvedFactual?.speech_present===true,
+      confidence_speech:Number(resolvedFactual?.confidence_speech)||0,
+      generation_mode:resolvedFactual?.generation_mode||"",
+    },
+    assembly,
+  };
+}
+
+function logPromptFailureDiagnostics(label,payload={}) {
+  console.error("[prompt generation failure diagnostics]");
+  console.error(JSON.stringify({
+    label,
+    ...collectPromptFailureDiagnostics(payload),
+  },null,2));
+}
+
+function parseValidationIssue(issue) {
+  const text=String(issue||"");
+  const idx=text.indexOf(":");
+  if(idx===-1) return {field:"",message:text};
+  return {
+    field:text.slice(0,idx).trim(),
+    message:text.slice(idx+1).trim(),
+  };
+}
+
+function logPromptValidationDetails({
+  mediaType,
+  stage="",
+  attempt=null,
+  prompts={},
+  factual={},
+  issues=[],
+}={}) {
+  const snapshot=collectPromptFailureDiagnostics({
+    mediaType,
+    stage,
+    attempt,
+    prompts,
+    factual,
+    issues,
+  });
+  const grouped=new Map();
+  for(const issue of issues) {
+    const parsed=parseValidationIssue(issue);
+    const key=parsed.field||"unknown";
+    if(!grouped.has(key)) grouped.set(key,[]);
+    grouped.get(key).push(issue);
+  }
+  const fields=grouped.size ? Array.from(grouped.entries()) : [["unknown",issues]];
+  for(const [field,fieldIssues] of fields) {
+    const promptValue=prompts?.[field];
+    const promptText=Array.isArray(promptValue)
+      ? promptValue.map(item=>String(item||"")).join(" | ")
+      : String(promptValue||"");
+    const platform=expectedPromptFields(mediaType).includes(field) ? field : "";
+    console.error("[prompt validation details]");
+    console.error(JSON.stringify({
+      platform,
+      field,
+      stage,
+      attempt,
+      issues:fieldIssues,
+      promptLength:promptValueLength(promptValue),
+      promptPreview:promptText.slice(0,300),
+      audioType:factual?.audio_type||"",
+      speechLanguage:factual?.speech_language||"",
+      expectedPlatforms:snapshot.expectedPlatforms,
+      generatedPlatforms:snapshot.generatedPlatforms,
+      missingPlatforms:snapshot.missingPlatforms,
+    },null,2));
+  }
 }
 
 function diagnostic(error, reason, dbg, mediaType) {
@@ -6927,6 +7155,17 @@ function validatePrompts(parsed, mediaType) {
     }
   }
   if(isVideo && repeatedPromptStructure(p,promptFields)) logPlatformSimilarity(p);
+  if(issues.length) {
+    logPromptFailureDiagnostics("validatePrompts issues",{
+      mediaType,
+      stage:"validatePrompts",
+      parsed,
+      prompts:p,
+      factual,
+      issues,
+      error:"Prompt validation issues detected",
+    });
+  }
   return issues;
 }
 
@@ -6955,6 +7194,23 @@ async function generatePromptJSONWithRetry({prompt,sysPrompt,images,mediaType,st
       const issues = validatePrompts(parsed.prompts ? parsed : {prompts:parsed}, mediaType);
       if(issues.length) {
         if(stage==="Stage2") logStage2Debug(`validation errors attempt ${attempt}`, issues);
+        logPromptValidationDetails({
+          mediaType,
+          stage,
+          attempt,
+          prompts:(parsed.prompts ? parsed.prompts : parsed),
+          factual:parsed.factual||parsed.analysis||{},
+          issues,
+        });
+        logPromptFailureDiagnostics("generatePromptJSONWithRetry validation failed before throw",{
+          mediaType,
+          stage,
+          attempt,
+          parsed:parsed.prompts ? parsed : {prompts:parsed},
+          issues,
+          raw,
+          error:`Prompt validation failed: ${issues.join("; ")}`,
+        });
         throw new Error(`Prompt validation failed: ${issues.join("; ")}`);
       }
       return parsed;
@@ -6965,6 +7221,11 @@ async function generatePromptJSONWithRetry({prompt,sysPrompt,images,mediaType,st
       if(attempt<2) dbg.log(stage, "Retrying generation once with same grounded inputs");
     }
   }
+  logPromptFailureDiagnostics("generatePromptJSONWithRetry incomplete diagnostic return",{
+    mediaType,
+    stage,
+    error:lastErr?.stack||lastErr?.message||`${stage} failed`,
+  });
   return diagnostic("Prompt generation incomplete", lastErr?.message || `${stage} failed`, dbg, mediaType);
 }
 
@@ -7212,6 +7473,22 @@ async function runAnalysis(images,mediaType,dbg,stylePreset,audioPayload={}) {
   // Validate prompt completeness
   const issues = validatePrompts(parsed, mediaType);
   if (issues.length > 0) {
+    logPromptValidationDetails({
+      mediaType,
+      stage:"runAnalysis final validation",
+      prompts:stage2Prompts,
+      factual:stage1Facts,
+      issues,
+    });
+    logPromptFailureDiagnostics("runAnalysis final prompt validation failure",{
+      mediaType,
+      stage:"runAnalysis final validation",
+      parsed,
+      prompts:stage2Prompts,
+      factual:stage1Facts,
+      issues,
+      error:`Prompt generation incomplete: ${issues.join("; ")}`,
+    });
     logPromptPipelineReport(parsed);
     activePromptTrace=null;
     return diagnostic("Prompt generation incomplete", issues.join("; "), dbg, mediaType);

@@ -353,10 +353,22 @@ app.post("/analyze-image",async(req,res)=>{
       console.warn("[analyze-image analysis failure]");
       console.warn(JSON.stringify({
         error:raw.error,
+        reason:raw.reason,
         payloadShape:normalized.payloadShape,
         mediaType:resolvedType,
         frameCount:imageFrames.length,
       },null,2));
+      if(raw.error==="Prompt generation incomplete") {
+        console.warn("[prompt generation incomplete response]");
+        console.warn(JSON.stringify({
+          error:raw.error,
+          reason:raw.reason,
+          mediaType:resolvedType,
+          frameCount:imageFrames.length,
+          debugStages:raw.debug?.stages?.map(stage=>stage.stage)||[],
+          payloadShape:normalized.payloadShape,
+        },null,2));
+      }
       return res.status(422).json({
         ...raw,
         payloadShape:normalized.payloadShape,
