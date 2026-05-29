@@ -2522,6 +2522,18 @@ function compressStage2Assembly({
     speech_language:compactContext?.speech_language,
     audio_type:compactContext?.audio_type,
   };
+  const cameraDedupEnabled=process.env.VP_DEDUP_CAMERA_STYLE==="1";
+  const briefCamera=cleanFact(brief.camera);
+  const compactCameraStyle=cleanFact(minimalContext.camera_style);
+  const cameraStyleDuplicate=Boolean(cameraDedupEnabled&&usableFact(briefCamera)&&usableFact(compactCameraStyle)&&briefCamera===compactCameraStyle);
+  if(cameraStyleDuplicate) delete minimalContext.camera_style;
+  console.log("[camera dedup experiment]");
+  console.log(JSON.stringify({
+    enabled:cameraDedupEnabled,
+    briefCamera,
+    compactCameraStyle,
+    removed:cameraStyleDuplicate,
+  },null,2));
   for(const key of Object.keys(minimalContext)) if(!usableFact(minimalContext[key])) delete minimalContext[key];
   let prompt=`Generate JSON only: {"${field}":"${targetWords}."}
 
