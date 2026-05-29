@@ -4330,12 +4330,21 @@ function buildPlatformPrompt(field, factual, stylePreset, instructions, generati
     recordSemanticOverlap("groundedMotion",groundedMotion,"shotPlan",shotPlan);
     recordSemanticOverlap("microMotion",microMotion,"shotPlan",shotPlan);
   }
-  const promptComponents=traceStage("buildPromptComponents",factual,true,()=>buildPromptComponents(factual),field);
+  const promptComponentsExperimentEnabled=process.env.VP_DISABLE_PROMPT_COMPONENTS==="1";
+  const promptComponents=promptComponentsExperimentEnabled
+    ? {}
+    : traceStage("buildPromptComponents",factual,true,()=>buildPromptComponents(factual),field);
   const briefComponents=directorBrief ? {...promptComponents,...directorBrief} : promptComponents;
-  console.log("[prompt components]");
-  console.log(JSON.stringify(briefComponents,null,2));
-  const profileAssembly=assemblePromptFromProfile(field,promptProfile,briefComponents);
-  const platformWriterOutput=traceStage("writePlatformStyle",{field,promptProfile,briefComponents,profileAssembly,directorBrief},true,()=>writePlatformStyle(field,promptProfile,briefComponents,profileAssembly,directorBrief),field);
+  if(!promptComponentsExperimentEnabled) {
+    console.log("[prompt components]");
+    console.log(JSON.stringify(briefComponents,null,2));
+  }
+  const profileAssembly=promptComponentsExperimentEnabled
+    ? {platform:field,order:[],sections:[],text:""}
+    : assemblePromptFromProfile(field,promptProfile,briefComponents);
+  const platformWriterOutput=promptComponentsExperimentEnabled
+    ? null
+    : traceStage("writePlatformStyle",{field,promptProfile,briefComponents,profileAssembly,directorBrief},true,()=>writePlatformStyle(field,promptProfile,briefComponents,profileAssembly,directorBrief),field);
   const compactContext=traceStage("buildStage2Context",{factual,shotPlan,promptSlots,briefComponents,directorBrief,stage2Scope},true,()=>buildStage2Context(factual,shotPlan,promptSlots,{...briefComponents,profile_assembly:profileAssembly,platform_writer:platformWriterOutput},directorBrief,stage2Scope),field);
   const speechLanguagePromptValue=cleanFact(compactContext.speech_language);
   const speechLanguageSection=speechLanguagePromptValue
@@ -4476,6 +4485,15 @@ Return ONLY valid JSON: {"${field}":"${targetWords}."}`;
       platform:field,
     },null,2));
   }
+  console.log("[prompt-components experiment]");
+  console.log(JSON.stringify({
+    enabled:promptComponentsExperimentEnabled,
+    platform:field,
+    promptComponentsBuilt:!promptComponentsExperimentEnabled,
+    profileAssemblyBuilt:!promptComponentsExperimentEnabled,
+    platformWriterBuilt:!promptComponentsExperimentEnabled,
+    finalPromptChars:finalPrompt.length,
+  },null,2));
   recordPromptStage("finalStage2Prompt",slotOnlyMode ? slotOnlyPrompt : compactPrompt,finalPrompt,{platform:field,enabled:true});
   const assemblyStatus=inspectStage2Assembly(finalPrompt);
   console.log("[stage2 active modules]");

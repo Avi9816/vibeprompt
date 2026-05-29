@@ -142,6 +142,92 @@ function sanitizeQuickBenchmark(body={}) {
   };
 }
 
+function stripDataUrl(value="") {
+  return String(value||"").replace(/^data:[^,]+,/i,"").trim();
+}
+
+function normalizeImageFrameEntry(frame,index) {
+  if(typeof frame==="string") {
+    return {
+      base64:stripDataUrl(frame),
+      mimeType:"image/jpeg",
+      timestamp:index,
+      sourceShape:"string",
+    };
+  }
+  if(!frame||typeof frame!=="object") {
+    return {
+      base64:"",
+      mimeType:"image/jpeg",
+      timestamp:index,
+      sourceShape:typeof frame,
+      validationError:"frame must be a base64 string or object",
+    };
+  }
+  const base64=stripDataUrl(
+    frame.base64||
+    frame.image||
+    frame.imageBase64||
+    frame.data||
+    frame.dataUrl||
+    ""
+  );
+  return {
+    base64,
+    mimeType:String(frame.mimeType||frame.type||"image/jpeg"),
+    timestamp:frame.timestamp??frame.time??frame.t??index,
+    sourceShape:Object.keys(frame),
+    validationError:base64 ? "" : "missing base64/image field",
+  };
+}
+
+function normalizeAnalyzeImagePayload(body={}) {
+  const bodyKeys=Object.keys(body||{});
+  const imageFramesRaw=Array.isArray(body.imageFrames) ? body.imageFrames : [];
+  const normalizedFrames=imageFramesRaw
+    .map((frame,index)=>normalizeImageFrameEntry(frame,index))
+    .filter(frame=>frame.base64);
+  const malformedFrames=imageFramesRaw
+    .map((frame,index)=>normalizeImageFrameEntry(frame,index))
+    .filter(frame=>!frame.base64)
+    .map(frame=>({
+      timestamp:frame.timestamp,
+      sourceShape:frame.sourceShape,
+      validationError:frame.validationError,
+    }));
+  const imageBase64=stripDataUrl(body.imageBase64||body.image||body.base64||"");
+  const audioBase64=stripDataUrl(body.audioBase64||body.audio?.base64||body.audio?.audioBase64||"");
+  const audioMimeType=body.audioMimeType||body.audio?.mimeType||body.audio?.type;
+  const payloadShape={
+    bodyKeys,
+    hasImageBase64:Boolean(imageBase64),
+    imageFramesIsArray:Array.isArray(body.imageFrames),
+    imageFramesCount:imageFramesRaw.length,
+    normalizedFrameCount:normalizedFrames.length,
+    malformedFrameCount:malformedFrames.length,
+    firstFrameShape:imageFramesRaw[0]&&typeof imageFramesRaw[0]==="object"&&!Array.isArray(imageFramesRaw[0])
+      ? Object.keys(imageFramesRaw[0])
+      : typeof imageFramesRaw[0],
+    hasAudioBase64:Boolean(audioBase64),
+    hasTranscript:Boolean(body.transcript),
+    hasMetadata:Boolean(body.metadata),
+  };
+  return {
+    imageUrl:body.imageUrl,
+    imageBase64,
+    imageFrames:normalizedFrames,
+    malformedFrames,
+    mimeType:body.mimeType||"image/jpeg",
+    mediaType:body.mediaType||body.metadata?.mediaType||"image",
+    stylePreset:body.stylePreset||body.metadata?.stylePreset||"cinematic",
+    audioBase64,
+    audioMimeType,
+    transcript:body.transcript||body.audio?.transcript||"",
+    metadata:body.metadata||{},
+    payloadShape,
+  };
+}
+
 app.use(cors({origin:(o,cb)=>cb(null,true),methods:["GET","POST","OPTIONS"],allowedHeaders:["Content-Type"]}));
 app.use(express.json({limit:"25mb"}));
 
@@ -218,24 +304,66 @@ app.get("/quick-benchmark/summary",(_,res)=>{
 });
 
 app.post("/analyze-image",async(req,res)=>{
-  const {imageUrl,imageBase64,imageFrames,mimeType,mediaType,stylePreset,audioBase64,audioMimeType}=req.body;
+  const normalized=normalizeAnalyzeImagePayload(req.body||{});
+  const {imageUrl,imageBase64,imageFrames,mimeType,mediaType,stylePreset,audioBase64,audioMimeType}=normalized;
+  console.log("[analyze-image payload]");
+  console.log(JSON.stringify({
+    requestBodyKeys:normalized.payloadShape.bodyKeys,
+    payloadShape:normalized.payloadShape,
+    frameStructure:imageFrames.map((frame,index)=>({
+      index,
+      base64Length:frame.base64.length,
+      mimeType:frame.mimeType,
+      timestamp:frame.timestamp,
+      sourceShape:frame.sourceShape,
+    })),
+    malformedFrames:normalized.malformedFrames,
+  },null,2));
   console.log("[server audio check]",{
     hasAudioBase64:!!audioBase64,
     mimeType:audioMimeType,
   });
-  if(!imageBase64&&!imageUrl&&(!Array.isArray(imageFrames)||!imageFrames.length)) {
-    return res.status(400).json({error:"imageUrl, imageBase64, or imageFrames required"});
+  if(!imageBase64&&!imageUrl&&!imageFrames.length) {
+    const failure={
+      error:"No usable image payload",
+      message:"Send imageBase64, imageUrl, or imageFrames as base64 strings or objects with base64/image fields.",
+      acceptedShapes:[
+        {imageBase64:"<base64>"},
+        {imageFrames:["<base64>"]},
+        {imageFrames:[{base64:"<base64>",timestamp:0}]},
+        {imageFrames:[{image:"<base64>",timestamp:0}]},
+      ],
+      payloadShape:normalized.payloadShape,
+      malformedFrames:normalized.malformedFrames,
+    };
+    console.warn("[analyze-image validation failure]");
+    console.warn(JSON.stringify(failure,null,2));
+    return res.status(422).json(failure);
   }
   const resolvedType=mediaType||"image";
   const preset=stylePreset||"cinematic";
   const audioPayload={audioBase64,audioMimeType};
   try{
-    const raw=Array.isArray(imageFrames)&&imageFrames.length
+    const raw=imageFrames.length
       ?await analyzeImageFramesBase64(imageFrames,resolvedType,preset,audioPayload)
       :imageBase64
         ?await analyzeImageBase64(imageBase64,mimeType||"image/jpeg",resolvedType,preset,audioPayload)
         :await analyzeImageUrl(imageUrl,preset);
-    if(raw?.error) return res.status(422).json(raw);
+    if(raw?.error) {
+      console.warn("[analyze-image analysis failure]");
+      console.warn(JSON.stringify({
+        error:raw.error,
+        payloadShape:normalized.payloadShape,
+        mediaType:resolvedType,
+        frameCount:imageFrames.length,
+      },null,2));
+      return res.status(422).json({
+        ...raw,
+        payloadShape:normalized.payloadShape,
+        frameCount:imageFrames.length,
+        mediaType:resolvedType,
+      });
+    }
     const result=generatePrompts(raw,resolvedType);
     console.log(`OK ${resolvedType} preset=${preset} model=${result.model}`);
     res.json(result);

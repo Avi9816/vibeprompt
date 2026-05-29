@@ -6,6 +6,16 @@
 const DEFAULT_API="http://localhost:3000";
 let overlayEl=null, activebtn=null;
 const log=(...a)=>console.log("[VibePrompt]",...a);
+const vpLog=(scope,data={})=>console.log(`[VP][${scope}]`,data);
+const ANALYSIS_CACHE_TTL=10*60*1000;
+const analysisCache=new Map();
+const inFlightAnalysis=new Map();
+const activeRequests=new WeakMap();
+let observerInitialized=false;
+let injectTimer=null;
+let injectRunning=false;
+let injectQueued=false;
+let lastInjectType="";
 
 // - LOADING MESSAGES -
 const LOADING_MSGS=[
@@ -37,6 +47,164 @@ function scoreImg(img){
   let s=w*h;
   if(img.src.includes("cdninstagram")||img.src.includes("fbcdn")) s*=2;
   return s;
+}
+
+function shortHash(value){
+  const text=String(value||"");
+  let h=2166136261;
+  for(let i=0;i<text.length;i++){
+    h^=text.charCodeAt(i);
+    h=Math.imul(h,16777619);
+  }
+  return (h>>>0).toString(36);
+}
+
+function visibleEnough(el){
+  if(!el||!el.isConnected) return false;
+  const r=el.getBoundingClientRect();
+  return r.width>40&&r.height>40&&r.bottom>-200&&r.top<window.innerHeight+200;
+}
+
+function bestPermalink(scope){
+  const links=[...(scope||document).querySelectorAll?.("a[href]")||[]]
+    .map(a=>a.href)
+    .filter(h=>/instagram\.com\/(p|reel|reels|stories)\//.test(h));
+  return links[0]||location.href;
+}
+
+function extractPostId(href=""){
+  const match=String(href||"").match(/instagram\.com\/(?:p|reel|reels|stories)\/([^/?#]+)/i);
+  return match?.[1]||"";
+}
+
+function stableUrlPart(url=""){
+  const raw=String(url||"");
+  if(!raw) return "";
+  try{
+    const parsed=new URL(raw,location.href);
+    return `${parsed.origin}${parsed.pathname}`;
+  }catch{
+    return raw.split("?")[0].split("#")[0];
+  }
+}
+
+function nearbyUsername(scope){
+  const text=(scope?.querySelector?.("header a[href^='/']")?.textContent||
+    scope?.querySelector?.("a[href^='/']")?.textContent||"").trim();
+  return text.slice(0,80);
+}
+
+function carouselIndex(scope){
+  const activeDots=[...(scope||document).querySelectorAll?.("[aria-label*='Slide'], [aria-label*='slide']")||[]];
+  const selected=activeDots.findIndex(el=>/current|selected|active/i.test([el.getAttribute("aria-label"),el.className].join(" ")));
+  if(selected>=0) return selected;
+  const buttons=[...(scope||document).querySelectorAll?.("button[aria-label*='Next'], button[aria-label*='Previous']")||[]];
+  return buttons.length ? shortHash(buttons.map(b=>b.getAttribute("aria-label")).join("|")) : "";
+}
+
+function mediaScope(target){
+  return target?.closest?.("article")||target?.parentElement||target||document;
+}
+
+function baseMediaSignature(target){
+  const scope=mediaScope(target);
+  const video=target?.tagName==="VIDEO"?target:scope.querySelector?.("video");
+  const permalink=bestPermalink(scope);
+  const postId=extractPostId(permalink);
+  const user=nearbyUsername(scope);
+  const cIndex=carouselIndex(scope);
+  if(video){
+    const src=stableUrlPart(video.currentSrc||video.src||"");
+    const poster=stableUrlPart(video.poster||"");
+    const dims=[video.videoWidth||video.clientWidth||0,video.videoHeight||video.clientHeight||0].join("x");
+    return "video:"+shortHash([postId,permalink,user,cIndex,src,poster,dims,Math.round(video.duration||0)].filter(Boolean).join("|"));
+  }
+  const img=target?.tagName==="IMG"?target:scope.querySelector?.("img");
+  if(img){
+    const src=stableUrlPart(img.currentSrc||img.src||"");
+    const dims=[img.naturalWidth||img.width||0,img.naturalHeight||img.height||0].join("x");
+    return "image:"+shortHash([postId,permalink,user,cIndex,src,dims,img.alt].filter(Boolean).join("|"));
+  }
+  return "page:"+shortHash([postId,permalink,user,cIndex].filter(Boolean).join("|"));
+}
+
+function getMediaSignature(target,logSignature=false){
+  const signature=baseMediaSignature(target);
+  if(logSignature) vpLog("signature",{mediaSignature:signature});
+  return signature;
+}
+
+function ownerForButton(btn,media){
+  return btn?.closest?.("article")||media?.element?.closest?.("article")||btn?.parentElement||document.body;
+}
+
+function buildCacheKey(signature,preset){
+  return `${signature}::${preset||"cinematic"}`;
+}
+
+function getCachedAnalysis(signature,preset){
+  const key=buildCacheKey(signature,preset);
+  const hit=analysisCache.get(key);
+  if(!hit) return null;
+  if(Date.now()-hit.ts>ANALYSIS_CACHE_TTL){
+    analysisCache.delete(key);
+    return null;
+  }
+  vpLog("cache",{mediaSignature:signature,cacheHit:true});
+  return hit.data;
+}
+
+function setCachedAnalysis(signature,preset,data){
+  analysisCache.set(buildCacheKey(signature,preset),{ts:Date.now(),data});
+  vpLog("cache",{mediaSignature:signature,stored:true,size:analysisCache.size});
+}
+
+function newRequestId(){
+  try{return crypto.randomUUID();}
+  catch{return `${Date.now()}-${Math.random().toString(36).slice(2)}`;}
+}
+
+function setActiveRequest(owner,btn,requestId,mediaSignature){
+  const state={requestId,mediaSignature,ts:Date.now()};
+  activeRequests.set(owner,state);
+  if(owner?.dataset){
+    owner.dataset.vpActiveRequestId=requestId;
+    owner.dataset.mediaSignature=mediaSignature;
+  }
+  if(btn?.dataset){
+    btn.dataset.activeRequestId=requestId;
+    btn.dataset.mediaSignature=mediaSignature;
+  }
+  vpLog("request",{mediaSignature,requestId,active:true});
+}
+
+function requestStillOwns(owner,btn,requestId,mediaSignature){
+  const state=activeRequests.get(owner);
+  const ok=Boolean(
+    btn?.isConnected&&
+    state?.requestId===requestId&&
+    state?.mediaSignature===mediaSignature&&
+    (!btn.dataset.activeRequestId||btn.dataset.activeRequestId===requestId)&&
+    (!owner?.dataset?.mediaSignature||owner.dataset.mediaSignature===mediaSignature)
+  );
+  if(!ok) vpLog("request",{mediaSignature,requestId,staleRejected:true,current:state});
+  return ok;
+}
+
+function cleanupLifecycle(){
+  const now=Date.now();
+  let pruned=0;
+  for(const [key,value] of analysisCache){
+    if(now-value.ts>ANALYSIS_CACHE_TTL){
+      analysisCache.delete(key);
+      pruned++;
+    }
+  }
+  document.querySelectorAll("[data-vp-injected]").forEach(btn=>{
+    const owner=btn.closest("article")||btn.parentElement;
+    if(!btn.isConnected||!owner?.isConnected) btn.remove();
+  });
+  if(pruned) vpLog("cache",{cleanup:true,pruned,cacheSize:analysisCache.size});
 }
 
 // - FRAME QUALITY CHECK -
@@ -525,6 +693,7 @@ function mkBtn(media,classes){
   const btn=document.createElement("button");
   btn.className="vp-btn "+(classes||"");
   btn.dataset.vpInjected="1";
+  btn.dataset.mediaSignature=media.mediaSignature||getMediaSignature(media.element||document);
   btn.innerHTML='<span class="vp-bicon">&#10024;</span><span class="vp-blabel">Get Prompt</span>';
   btn.addEventListener("click",e=>{e.preventDefault();e.stopPropagation();handleClick(btn,media);});
   return btn;
@@ -539,25 +708,54 @@ function findBar(article){
 // - INJECTION -
 function injectAll(){
   const type=pageType();
-  log("inject type="+type);
+  cleanupLifecycle();
+  if(type!==lastInjectType){
+    lastInjectType=type;
+    log("inject type="+type);
+  }
   if(type==="story"||type==="reel"){
-    if(!document.querySelector("[data-vp-injected]")){
+    const reelVideo=document.querySelector("video");
+    const signature=getMediaSignature(reelVideo||document.body);
+    const existing=document.querySelector("[data-vp-injected].vp-floating");
+    if(existing&&existing.dataset.mediaSignature!==signature){
+      vpLog("observer",{nodeRecycled:true,previous:existing.dataset.mediaSignature,current:signature});
+      existing.remove();
+    }
+    if(!document.querySelector("[data-vp-injected].vp-floating")){
       // Don't await here - inject a placeholder button immediately,
       // actual media extraction happens at click time (avoids blocking injection)
-      const btn=mkBtn({type:"video-pending",mediaType:"video"},
+      const btn=mkBtn({type:"video-pending",mediaType:"video",mediaSignature:signature},
         type==="story"?"vp-floating vp-story":"vp-floating");
+      btn.dataset.mediaSignature=signature;
       document.body.appendChild(btn);
     }
     return;
   }
-  document.querySelectorAll("article").forEach(async(art,i)=>{
-    if(art.querySelector("[data-vp-injected]")) return;
-    const media=await extractMedia(art);
-    if(!media) return;
-    const btn=mkBtn(media,"vp-inline");
-    const bar=findBar(art);
-    if(bar) bar.appendChild(btn); else art.appendChild(btn);
-    log(`article ${i} (${media.type})`);
+  const articles=[...document.querySelectorAll("article")];
+  const visibleArticles=articles.filter(visibleEnough);
+  visibleArticles.forEach(async(art,i)=>{
+    if(art.dataset.vpInjecting==="1") return;
+    art.dataset.vpInjecting="1";
+    try{
+      const media=await extractMedia(art);
+      if(!media) return;
+      const signature=getMediaSignature(media.element||art);
+      media.mediaSignature=signature;
+      const existing=art.querySelector("[data-vp-injected]");
+      if(existing&&existing.dataset.mediaSignature===signature) return;
+      if(existing&&existing.dataset.mediaSignature!==signature){
+        vpLog("observer",{nodeRecycled:true,previous:existing.dataset.mediaSignature,current:signature});
+        existing.remove();
+      }
+      const btn=mkBtn(media,"vp-inline");
+      btn.dataset.mediaSignature=signature;
+      art.dataset.mediaSignature=signature;
+      const bar=findBar(art);
+      if(bar) bar.appendChild(btn); else art.appendChild(btn);
+      vpLog("overlay",{injected:true,index:i,type:media.type,mediaSignature:signature});
+    }finally{
+      delete art.dataset.vpInjecting;
+    }
   });
 }
 
@@ -567,12 +765,38 @@ async function handleClick(btn,media){
   const stored=await getStorage("vp_preset");
   const preset=stored||"cinematic";
 
-  const isVideoMedia=["video","video-frame","reel","story"].includes(media.type)||
-    !!document.querySelector("video");
+  const owner=ownerForButton(btn,media);
+  let liveMedia=media;
+  if(owner&&owner!==document.body&&(!media.element||!owner.contains(media.element))) {
+    liveMedia=await extractMedia(owner)||media;
+    vpLog("analysis",{refreshedMedia:true,type:liveMedia.type});
+  }
+  const currentVideo=owner?.querySelector?.("video")||(["video-pending","video-capture-failed","reel","story"].includes(liveMedia.type)?document.querySelector("video"):null);
+  const currentMediaElement=currentVideo||liveMedia.element||owner;
+  const mediaSignature=getMediaSignature(currentMediaElement,true);
+  const previousSignature=btn.dataset.mediaSignature||owner?.dataset?.mediaSignature||"";
+  if(previousSignature&&previousSignature!==mediaSignature) {
+    vpLog("analysis",{nodeRecycled:true,previousSignature,currentSignature:mediaSignature});
+  }
+  btn.dataset.mediaSignature=mediaSignature;
+  if(owner?.dataset) owner.dataset.mediaSignature=mediaSignature;
+
+  const isVideoMedia=["video","video-frame","reel","story","video-pending","video-capture-failed"].includes(liveMedia.type)||
+    !!currentVideo;
   const mediaType=isVideoMedia?"video":"image";
-  console.log("[media.type]", media.type);
-  console.log("[media.base64 exists]", !!media.base64);
+  const cached=getCachedAnalysis(mediaSignature,preset);
+  if(cached) {
+    activebtn=btn;
+    showOverlay({...cached,mediaSignature});
+    return;
+  }
+
+  const requestId=newRequestId();
+  setActiveRequest(owner,btn,requestId,mediaSignature);
+  console.log("[media.type]", liveMedia.type);
+  console.log("[media.base64 exists]", !!liveMedia.base64);
   console.log("[isVideoMedia]", isVideoMedia);
+  vpLog("analysis",{start:true,mediaSignature,requestId,mediaType,preset});
 
   // Animate button with rotating messages
   btn.disabled=true;
@@ -594,7 +818,11 @@ async function handleClick(btn,media){
     if(isVideoMedia){
       // Capture at click time for reels/stories (fresh attempt when user actually wants it)
       log("click: capturing reel frame at click time");
-      const videos=[...document.querySelectorAll("video")];
+      const videos=[...(owner?.querySelectorAll?.("video")||[])];
+      if(currentVideo&&!videos.includes(currentVideo)) videos.unshift(currentVideo);
+      if(!videos.length&&["video-pending","video-capture-failed","reel","story"].includes(liveMedia.type)) {
+        videos.push(...document.querySelectorAll("video"));
+      }
       videos.sort((a,b)=>{
         const score=v=>(!v.paused&&v.currentTime>0.1?100:0)+(v.currentTime>0?50:0)+v.readyState;
         return score(b)-score(a);
@@ -617,33 +845,32 @@ async function handleClick(btn,media){
           if(frame&&frame.base64){
             b64data={base64:frame.base64,mimeType:frame.mimeType||"image/jpeg"};
             log("click: reel captured method="+frame.source+" size="+Math.round(frame.base64.length/1024)+"KB");
-          } else if(media.base64){
-            b64data={base64:media.base64,mimeType:media.mimeType||"image/jpeg"};
-            log("click: falling back to pre-captured video frame source="+media.source);
+          } else if(liveMedia.base64){
+            b64data={base64:liveMedia.base64,mimeType:liveMedia.mimeType||"image/jpeg"};
+            log("click: falling back to pre-captured video frame source="+liveMedia.source);
           } else {
             throw new Error("Instagram blocked frame extraction. Try: pause the reel at a clear frame, then click Get Prompt again.");
           }
         }
-      } else if(media.base64){
-        b64data={base64:media.base64,mimeType:media.mimeType||"image/jpeg"};
-        log("click: no video element, falling back to pre-captured video frame source="+media.source);
+      } else if(liveMedia.base64){
+        b64data={base64:liveMedia.base64,mimeType:liveMedia.mimeType||"image/jpeg"};
+        log("click: no video element, falling back to pre-captured video frame source="+liveMedia.source);
       } else {
         throw new Error("No video element found on this page.");
       }
-    } else if(media.base64){
+    } else if(liveMedia.base64){
       // Already captured (image posts via canvas/fetch)
-      b64data={base64:media.base64,mimeType:media.mimeType};
-      log("click: using pre-captured frame source="+media.source);
+      b64data={base64:liveMedia.base64,mimeType:liveMedia.mimeType};
+      log("click: using pre-captured frame source="+liveMedia.source);
     } else {
       // Image post: try browser fetch then canvas fallback
-      b64data=await toBase64(media);
+      b64data=await toBase64(liveMedia);
     }
 
     if(!b64data){
       throw new Error("Could not capture image. Instagram may have blocked access - try refreshing the page.");
     }
 
-    const apiBase=(await getStorage("apiBase"))||DEFAULT_API;
     const payload=imageFrames&&imageFrames.length>1
       ?{imageFrames,mediaType,stylePreset:preset}
       :{imageBase64:b64data.base64,mimeType:b64data.mimeType,mediaType,stylePreset:preset};
@@ -665,21 +892,48 @@ async function handleClick(btn,media){
     console.log("[payload keys]", Object.keys(payload));
     console.log("[using imageFrames]", !!payload.imageFrames);
     console.log("[using imageBase64]", !!payload.imageBase64);
-    const res=await fetch(apiBase.replace(/\/$/,"")+"/analyze-image",{
-      method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify(payload)
-    });
-    if(!res.ok){const e=await res.json().catch(()=>({error:"HTTP "+res.status}));throw new Error(e.error||"HTTP "+res.status);}
-    const data=await res.json();
-    saveHistory(data, "instagram-media");
-    showOverlay(data);
+    if(!requestStillOwns(owner,btn,requestId,mediaSignature)) return;
+    const apiBase=(await getStorage("apiBase"))||DEFAULT_API;
+    const key=buildCacheKey(mediaSignature,preset);
+    let requestPromise=inFlightAnalysis.get(key);
+    if(requestPromise) {
+      vpLog("request",{mediaSignature,requestId,deduped:true});
+    } else {
+      requestPromise=(async()=>{
+        const res=await fetch(apiBase.replace(/\/$/,"")+"/analyze-image",{
+          method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify(payload),
+        });
+        if(!res.ok){
+          const e=await res.json().catch(()=>({error:"HTTP "+res.status}));
+          throw new Error(e.error||"HTTP "+res.status);
+        }
+        return await res.json();
+      })();
+      inFlightAnalysis.set(key,requestPromise);
+    }
+    let data;
+    try{
+      data=await requestPromise;
+    }finally{
+      if(inFlightAnalysis.get(key)===requestPromise) inFlightAnalysis.delete(key);
+    }
+    if(!requestStillOwns(owner,btn,requestId,mediaSignature)) return;
+    const ownedData={...data,mediaSignature};
+    setCachedAnalysis(mediaSignature,preset,ownedData);
+    if(!requestStillOwns(owner,btn,requestId,mediaSignature)) return;
+    saveHistory(ownedData, mediaSignature);
+    showOverlay(ownedData);
   }catch(e){
     log("error:",e.message);
-    showError(e.message,media);
+    if(requestStillOwns(owner,btn,requestId,mediaSignature)) showError(e.message,{...liveMedia,mediaSignature});
   }finally{
     clearInterval(msgTimer);
-    btn.disabled=false;
-    btn.innerHTML='<span class="vp-bicon">&#10024;</span><span class="vp-blabel">Get Prompt</span>';
+    if(btn.isConnected&&btn.dataset.activeRequestId===requestId){
+      btn.disabled=false;
+      btn.innerHTML='<span class="vp-bicon">&#10024;</span><span class="vp-blabel">Get Prompt</span>';
+      delete btn.dataset.activeRequestId;
+    }
   }
 }
 
@@ -1132,9 +1386,11 @@ function showOverlay(data){
   closeOverlay();
   const root=document.createElement("div");
   root.id="vp-root";
+  if(data?.mediaSignature) root.dataset.mediaSignature=data.mediaSignature;
   root.innerHTML=buildOverlay(data);
   document.body.appendChild(root);
   overlayEl=root;
+  vpLog("overlay",{show:true,mediaSignature:data?.mediaSignature||""});
   requestAnimationFrame(()=>document.getElementById("vpPanel")?.classList.add("vp-panel-in"));
 
   document.getElementById("vpX")?.addEventListener("click",closeOverlay);
@@ -1192,7 +1448,8 @@ function showOverlay(data){
       if(helper) helper.textContent=btn.dataset.presetDesc||"";
       // Trigger re-analysis with new preset
       closeOverlay();
-      if(activebtn) activebtn.click();
+      if(activebtn?.isConnected) activebtn.click();
+      else vpLog("overlay",{presetReanalysisSkipped:true,reason:"source button detached"});
     });
   });
 }
@@ -1201,6 +1458,7 @@ function showError(msg,media){
   closeOverlay();
   const root=document.createElement("div");
   root.id="vp-root";
+  root.dataset.mediaSignature=media?.mediaSignature||"";
   root.innerHTML=`<div class="vp-backdrop" id="vpBd">
 <div class="vp-panel vp-err-panel" id="vpPanel">
   <div class="vp-head">
@@ -1217,13 +1475,21 @@ function showError(msg,media){
 </div></div>`;
   document.body.appendChild(root);
   overlayEl=root;
+  vpLog("overlay",{error:true,mediaSignature:media?.mediaSignature||"",message:msg});
   requestAnimationFrame(()=>document.getElementById("vpPanel")?.classList.add("vp-panel-in"));
   document.getElementById("vpX")?.addEventListener("click",closeOverlay);
   document.getElementById("vpBd")?.addEventListener("click",e=>{if(e.target.id==="vpBd")closeOverlay();});
-  document.getElementById("vpRetry")?.addEventListener("click",()=>{closeOverlay();if(activebtn)activebtn.click();});
+  document.getElementById("vpRetry")?.addEventListener("click",()=>{
+    closeOverlay();
+    if(activebtn?.isConnected) activebtn.click();
+    else vpLog("overlay",{retrySkipped:true,reason:"source button detached"});
+  });
 }
 
-function closeOverlay(){overlayEl?.remove();overlayEl=null;}
+function closeOverlay(){
+  if(overlayEl) vpLog("overlay",{close:true,mediaSignature:overlayEl.dataset?.mediaSignature||""});
+  overlayEl?.remove();overlayEl=null;
+}
 
 function copyText(text,btn){
   navigator.clipboard.writeText(text).then(()=>{
@@ -1238,13 +1504,55 @@ function copyText(text,btn){
 }
 
 // - OBSERVER -
-let injectTimer;
-function scheduleInject(d){clearTimeout(injectTimer);injectTimer=setTimeout(injectAll,d||700);}
-new MutationObserver(()=>scheduleInject(500)).observe(document.body,{childList:true,subtree:true});
-let lastUrl=location.href;
-new MutationObserver(()=>{
-  if(location.href!==lastUrl){lastUrl=location.href;log("URL->",lastUrl);scheduleInject(1500);}
-}).observe(document.head,{childList:true,subtree:true,characterData:true});
-scheduleInject(2000);
+async function runScheduledInject(){
+  if(injectRunning){
+    injectQueued=true;
+    return;
+  }
+  injectRunning=true;
+  try{
+    injectAll();
+  }finally{
+    injectRunning=false;
+    if(injectQueued){
+      injectQueued=false;
+      scheduleInject(400);
+    }
+  }
+}
+
+function scheduleInject(d){
+  clearTimeout(injectTimer);
+  injectTimer=setTimeout(runScheduledInject,d||700);
+}
+
+function initObservers(){
+  if(observerInitialized||window.__vpObserverInitialized){
+    vpLog("observer",{singleton:"already-initialized"});
+    return;
+  }
+  observerInitialized=true;
+  window.__vpObserverInitialized=true;
+  const mutationObserver=new MutationObserver(mutations=>{
+    const meaningful=mutations.some(m=>[...m.addedNodes,...m.removedNodes].some(n=>n.nodeType===1&&!n.closest?.("#vp-root")&&!n.matches?.("[data-vp-injected]")));
+    if(meaningful) scheduleInject(650);
+  });
+  mutationObserver.observe(document.body,{childList:true,subtree:true});
+  let lastUrl=location.href;
+  const urlObserver=new MutationObserver(()=>{
+    if(location.href!==lastUrl){
+      lastUrl=location.href;
+      log("URL->",lastUrl);
+      closeOverlay();
+      scheduleInject(1200);
+    }
+  });
+  urlObserver.observe(document.head,{childList:true,subtree:true,characterData:true});
+  window.addEventListener("scroll",()=>scheduleInject(900),{passive:true});
+  vpLog("observer",{initialized:true});
+  scheduleInject(1200);
+}
+
+initObservers();
 log("v4.3 loaded");
 })();
