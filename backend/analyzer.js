@@ -4148,6 +4148,10 @@ function isModernVideoPlatform(field) {
   return ["veo","sora","runway","kling","pika"].includes(String(field||"").toLowerCase());
 }
 
+function groundedMotionExperimentEnabled() {
+  return process.env.VP_DISABLE_GROUNDED_MOTION==="1";
+}
+
 function inspectStage2Assembly(prompt) {
   const text=String(prompt||"");
   return {
@@ -4210,7 +4214,17 @@ function buildPlatformPrompt(field, factual, stylePreset, instructions, generati
   }
   const stage2Facts=traceStage("stage2FactualContext",factual,true,()=>stage2FactualContext(factual),field);
   const motionFacts=traceStage("motionFacts",factual,true,()=>generateImageMotionFacts(factual),field);
-  const groundedMotion=traceStage("groundedMotion",factual,true,()=>groundedMotionSummary(factual),field);
+  const disableGroundedMotion=groundedMotionExperimentEnabled()&&modernVideoPlatform;
+  const groundedMotion=disableGroundedMotion
+    ? null
+    : traceStage("groundedMotion",factual,true,()=>groundedMotionSummary(factual),field);
+  console.log("[grounded-motion experiment]");
+  console.log(JSON.stringify({
+    enabled:groundedMotionExperimentEnabled(),
+    platform:field,
+    groundedMotionBuilt:!disableGroundedMotion,
+    modernPlatform:modernVideoPlatform,
+  },null,2));
   const microMotion=traceStage("microMotion",{factual,generationMode},true,()=>buildMicroMotionLayer(factual,generationMode),field);
   const ocrContext=ocrTopicContext(factual);
   const speechContext=speechTopicContext(factual);
@@ -4325,9 +4339,9 @@ function buildPlatformPrompt(field, factual, stylePreset, instructions, generati
     recordSemanticOverlap("camera_energy",socialCamera.camera_energy,"directorBrief.camera",directorBrief.camera);
     recordSemanticOverlap("viewer_perspective",socialCamera.viewer_perspective,"directorBrief.camera",directorBrief.camera);
     recordSemanticOverlap("cameraGrammar",cameraGrammar,"directorBrief.camera",directorBrief.camera);
-    recordSemanticOverlap("motionFacts",motionFacts,"groundedMotion",groundedMotion);
+    if(groundedMotion) recordSemanticOverlap("motionFacts",motionFacts,"groundedMotion",groundedMotion);
     recordSemanticOverlap("motionFacts",motionFacts,"microMotion",microMotion);
-    recordSemanticOverlap("groundedMotion",groundedMotion,"shotPlan",shotPlan);
+    if(groundedMotion) recordSemanticOverlap("groundedMotion",groundedMotion,"shotPlan",shotPlan);
     recordSemanticOverlap("microMotion",microMotion,"shotPlan",shotPlan);
   }
   const promptComponentsExperimentEnabled=process.env.VP_DISABLE_PROMPT_COMPONENTS==="1";
@@ -4427,7 +4441,7 @@ Return ONLY valid JSON: {"${field}":"${targetWords}."}`;
     "SHOT_PLAN", JSON.stringify({order:shotPlanOrder,plan:shotPlan}),
     "PROMPT_SLOTS", JSON.stringify(promptSlots),
     "MOTION_SYNTHESIS", JSON.stringify(motionFacts),
-    "GROUNDED_MOTION_FACTS", JSON.stringify(groundedMotion),
+    ...(groundedMotion ? ["GROUNDED_MOTION_FACTS", JSON.stringify(groundedMotion)] : []),
     "MICRO_MOTION_LAYER", JSON.stringify(microMotion),
     "OCR_TOPIC", JSON.stringify(ocrContext),
     "SPOKEN_TOPIC", JSON.stringify(speechContext),
