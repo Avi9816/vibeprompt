@@ -3917,126 +3917,6 @@ function groundedFactSummary(factual) {
   };
 }
 
-function buildPromptComponents(factual) {
-  const component=(...values)=>values.map(cleanFact).filter(usableFact).join("; ");
-  const speechPresent=factual?.speech_present===true || String(factual?.speech_present).trim().toLowerCase()==="true";
-  const speechConfidence=Math.max(0,Math.min(1,Number(factual?.confidence_speech)||0));
-  const action=buildActionAbstraction(factual);
-  const audioParts=[];
-  const audioType=cleanFact(factual?.audio_type);
-  if(["speech","speech_and_music"].includes(audioType)&&speechPresent&&speechConfidence>=0.7) {
-    if(usableFact(factual?.speech_language)) audioParts.push(`${cleanFact(factual.speech_language)} speech`);
-    if(usableFact(factual?.dialogue_summary)) audioParts.push(cleanFact(factual.dialogue_summary));
-    else if(usableFact(factual?.spoken_topic)) audioParts.push(cleanFact(factual.spoken_topic));
-  }
-  if(["music","speech_and_music"].includes(audioType)) audioParts.push("background music guidance");
-  if(audioType==="ambient_audio") audioParts.push("ambient audio only");
-  if(usableFact(factual?.music_mood)) audioParts.push(cleanFact(factual.music_mood));
-  if(usableFact(factual?.ambient_audio)) audioParts.push(cleanFact(factual.ambient_audio));
-  return {
-    subject:component(factual?.creator_archetype,factual?.hero_element,factual?.primary_object,factual?.product_identity,factual?.subjects,factual?.face),
-    action:component(factual?.creator_intent,factual?.performance_pattern,factual?.presentation_style,action.primary_action_description,factual?.pose_action),
-    camera:component(factual?.camera_style,factual?.camera_energy,factual?.camera_relationship,factual?.viewer_perspective,factual?.camera_intention,factual?.camera_motion,factual?.lens_feel),
-    environment:component(factual?.environment,factual?.surfaces),
-    lighting:component(factual?.lighting),
-    atmosphere:component(factual?.creator_archetype,factual?.social_platform_style,factual?.content_personality,factual?.creator_confidence,factual?.viewer_hook_style,factual?.dance_energy,factual?.reel_energy,factual?.social_aesthetic,factual?.viewer_feeling,factual?.mood_atmosphere),
-    motion:translateToSocialMotionLanguage(component(factual?.pose_rhythm,factual?.social_behavior,factual?.attention_progression,factual?.focus_transition,factual?.body_motion_style,factual?.motion_rhythm,factual?.movement_density,factual?.motion_style,factual?.subject_motion,factual?.visible_motion_cues,factual?.inferred_motion,factual?.environmental_motion,factual?.music_sync_energy,factual?.beat_sync_strength,factual?.temporal_progression,factual?.performance_progression),factual),
-    temporal:component(factual?.temporal_opening,factual?.temporal_progression,factual?.temporal_continuity,factual?.moment_flow,factual?.scene_evolution,factual?.performance_progression,factual?.visual_priority_flow,factual?.movement_continuity,factual?.pose_rhythm,factual?.performance_style,factual?.visible_motion_cues,factual?.scene_purpose,factual?.activity_context),
-    audio:audioParts.join("; "),
-    emotion:component(factual?.viewer_relationship,factual?.creator_presence,factual?.performance_intensity,factual?.viewer_feeling,factual?.camera_engagement,factual?.camera_presence,factual?.mood_atmosphere,factual?.speaker_intent),
-    finish:component(factual?.primary_visual_focus,factual?.secondary_visual_focus,factual?.visual_priority_flow,factual?.lens_feel,factual?.color_palette,factual?.lighting),
-  };
-}
-
-function assemblePromptFromProfile(platform, profile, components) {
-  const structure=Array.isArray(profile?.preferred_structure) ? profile.preferred_structure : [];
-  const keyFor=label=>{
-    const text=String(label||"").toLowerCase();
-    if(/cinematography|camera|framing|composition|shot/.test(text)) return "camera";
-    if(/subject|character|creator/.test(text)) return "subject";
-    if(/action/.test(text)) return "action";
-    if(/scene|environment|context/.test(text)) return "environment";
-    if(/style|quality|modifier|finish|visual/.test(text)) return "finish";
-    if(/ambiance|atmosphere|mood/.test(text)) return "atmosphere";
-    if(/audio|dialogue|sfx|sound/.test(text)) return "audio";
-    if(/motion|transition/.test(text)) return "motion";
-    if(/emotion|tone/.test(text)) return "emotion";
-    if(/temporal|progression|continuity/.test(text)) return "temporal";
-    if(/lighting/.test(text)) return "lighting";
-    return "";
-  };
-  const sections=structure
-    .map(label=>({label,key:keyFor(label)}))
-    .filter(item=>item.key&&usableFact(components?.[item.key]))
-    .map(item=>({section:item.label,value:components[item.key]}));
-  console.log("[assembly order]");
-  console.log(JSON.stringify({
-    platform,
-    order:structure,
-    assembled:sections.map(s=>s.section),
-  },null,2));
-  return {
-    platform,
-    order:structure,
-    sections,
-    text:sections.map(s=>s.value).join(". "),
-  };
-}
-
-function writingStyleSummary(profile) {
-  const style=profile?.writing_style||{};
-  return {
-    tone:style.tone||[],
-    sentence_structure:style.sentence_structure||[],
-    preferred_wording:style.preferred_wording||[],
-    level_of_detail:style.level_of_detail||[],
-  };
-}
-
-function platformWriter(platform, profile, assembly, styleLabel, directorBrief=null) {
-  const style=writingStyleSummary(profile);
-  console.log("[platform writer]");
-  console.log(JSON.stringify({platform,style:styleLabel},null,2));
-  return {
-    platform,
-    style:styleLabel,
-    writing_style:style,
-    director_brief:directorBrief,
-    sections:assembly?.sections||[],
-    instruction:"Transform DIRECTOR_BRIEF into generation-oriented shot instructions using this platform writing style. Do not reconstruct facts or add new details.",
-  };
-}
-
-function writeVeoStyle(profile, components, assembly, directorBrief=null) {
-  return platformWriter("veo",profile,assembly,"cinematic prose",directorBrief);
-}
-
-function writeSoraStyle(profile, components, assembly, directorBrief=null) {
-  return platformWriter("sora",profile,assembly,"temporal progression",directorBrief);
-}
-
-function writeRunwayStyle(profile, components, assembly, directorBrief=null) {
-  return platformWriter("runway",profile,assembly,"production direction",directorBrief);
-}
-
-function writeKlingStyle(profile, components, assembly, directorBrief=null) {
-  return platformWriter("kling",profile,assembly,"visual specificity",directorBrief);
-}
-
-function writePikaStyle(profile, components, assembly, directorBrief=null) {
-  return platformWriter("pika",profile,assembly,"compact visual direction",directorBrief);
-}
-
-function writePlatformStyle(platform, profile, components, assembly, directorBrief=null) {
-  const key=String(platform||"").toLowerCase();
-  if(key==="veo") return writeVeoStyle(profile,components,assembly,directorBrief);
-  if(key==="sora") return writeSoraStyle(profile,components,assembly,directorBrief);
-  if(key==="runway") return writeRunwayStyle(profile,components,assembly,directorBrief);
-  if(key==="kling") return writeKlingStyle(profile,components,assembly,directorBrief);
-  if(key==="pika") return writePikaStyle(profile,components,assembly,directorBrief);
-  return platformWriter(key,profile,assembly,"grounded visual wording",directorBrief);
-}
-
 function referencePatternTargetWords(pattern, profile, field) {
   if(pattern?.avgWords) {
     const avg=Number(pattern.avgWords)||0;
@@ -4344,22 +4224,7 @@ function buildPlatformPrompt(field, factual, stylePreset, instructions, generati
     if(groundedMotion) recordSemanticOverlap("groundedMotion",groundedMotion,"shotPlan",shotPlan);
     recordSemanticOverlap("microMotion",microMotion,"shotPlan",shotPlan);
   }
-  const promptComponentsExperimentEnabled=process.env.VP_DISABLE_PROMPT_COMPONENTS==="1";
-  const promptComponents=promptComponentsExperimentEnabled
-    ? {}
-    : traceStage("buildPromptComponents",factual,true,()=>buildPromptComponents(factual),field);
-  const briefComponents=directorBrief ? {...promptComponents,...directorBrief} : promptComponents;
-  if(!promptComponentsExperimentEnabled) {
-    console.log("[prompt components]");
-    console.log(JSON.stringify(briefComponents,null,2));
-  }
-  const profileAssembly=promptComponentsExperimentEnabled
-    ? {platform:field,order:[],sections:[],text:""}
-    : assemblePromptFromProfile(field,promptProfile,briefComponents);
-  const platformWriterOutput=promptComponentsExperimentEnabled
-    ? null
-    : traceStage("writePlatformStyle",{field,promptProfile,briefComponents,profileAssembly,directorBrief},true,()=>writePlatformStyle(field,promptProfile,briefComponents,profileAssembly,directorBrief),field);
-  const compactContext=traceStage("buildStage2Context",{factual,shotPlan,promptSlots,briefComponents,directorBrief,stage2Scope},true,()=>buildStage2Context(factual,shotPlan,promptSlots,{...briefComponents,profile_assembly:profileAssembly,platform_writer:platformWriterOutput},directorBrief,stage2Scope),field);
+  const compactContext=traceStage("buildStage2Context",{factual,shotPlan,promptSlots,directorBrief,stage2Scope},true,()=>buildStage2Context(factual,shotPlan,promptSlots,{},directorBrief,stage2Scope),field);
   const speechLanguagePromptValue=cleanFact(compactContext.speech_language);
   const speechLanguageSection=speechLanguagePromptValue
     ? JSON.stringify({speech_language:speechLanguagePromptValue})
@@ -4499,15 +4364,6 @@ Return ONLY valid JSON: {"${field}":"${targetWords}."}`;
       platform:field,
     },null,2));
   }
-  console.log("[prompt-components experiment]");
-  console.log(JSON.stringify({
-    enabled:promptComponentsExperimentEnabled,
-    platform:field,
-    promptComponentsBuilt:!promptComponentsExperimentEnabled,
-    profileAssemblyBuilt:!promptComponentsExperimentEnabled,
-    platformWriterBuilt:!promptComponentsExperimentEnabled,
-    finalPromptChars:finalPrompt.length,
-  },null,2));
   recordPromptStage("finalStage2Prompt",slotOnlyMode ? slotOnlyPrompt : compactPrompt,finalPrompt,{platform:field,enabled:true});
   const assemblyStatus=inspectStage2Assembly(finalPrompt);
   console.log("[stage2 active modules]");
