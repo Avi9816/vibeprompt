@@ -12,6 +12,134 @@ const promptProfileCache=new Map();
 const referencePatternCache=new Map();
 const promptAssemblyContextCache=new Map();
 let promptOptimizationRulesCache=null;
+let activePromptTrace=null;
+
+function traceStringify(value) {
+  if(value===undefined||value===null) return "";
+  if(typeof value==="string") return value;
+  try{return JSON.stringify(value);}
+  catch{return String(value);}
+}
+
+function traceChars(value) {
+  return traceStringify(value).length;
+}
+
+function traceKeys(value) {
+  if(value&&typeof value==="object"&&!Array.isArray(value)) return Object.keys(value);
+  if(Array.isArray(value)) return ["array",`length:${value.length}`];
+  return [];
+}
+
+function startPromptTrace({mediaType,stylePreset}={}) {
+  activePromptTrace={
+    startedAt:Date.now(),
+    mediaType,
+    stylePreset,
+    stages:[],
+    overlaps:[],
+    payloadGrowth:[],
+    slotOnlyDiagnostics:[],
+  };
+  return activePromptTrace;
+}
+
+function recordPromptStage(stage,input,output,{enabled=true,durationMs=0,platform="",keys=null}={}) {
+  if(!activePromptTrace) return;
+  const outputChars=traceChars(output);
+  const prior=activePromptTrace.payloadGrowth.length
+    ? activePromptTrace.payloadGrowth[activePromptTrace.payloadGrowth.length-1].cumulativeChars
+    : 0;
+  const entry={
+    stage:platform ? `${platform}:${stage}` : stage,
+    inputChars:traceChars(input),
+    outputChars,
+    durationMs,
+    keys:keys||traceKeys(output),
+    enabled:Boolean(enabled),
+  };
+  activePromptTrace.stages.push(entry);
+  activePromptTrace.payloadGrowth.push({
+    stage:entry.stage,
+    chars:outputChars,
+    cumulativeChars:prior+outputChars,
+  });
+  console.log("[prompt trace]");
+  console.log(JSON.stringify(entry,null,2));
+}
+
+function traceStage(stage,input,enabled,fn,platform="") {
+  const started=Date.now();
+  const output=fn();
+  recordPromptStage(stage,input,output,{enabled,durationMs:Date.now()-started,platform});
+  return output;
+}
+
+function tokenSet(value) {
+  return new Set(traceStringify(value).toLowerCase()
+    .replace(/[^a-z0-9\s]/g," ")
+    .split(/\s+/)
+    .filter(word=>word.length>3));
+}
+
+function semanticOverlap(systemA,valueA,systemB,valueB) {
+  const a=tokenSet(valueA);
+  const b=tokenSet(valueB);
+  const duplicatedTerms=[...a].filter(word=>b.has(word)).slice(0,30);
+  const denom=Math.max(Math.min(a.size,b.size),1);
+  return {
+    systemA,
+    systemB,
+    similarityEstimate:Number((duplicatedTerms.length/denom).toFixed(2)),
+    duplicatedTerms,
+  };
+}
+
+function recordSemanticOverlap(systemA,valueA,systemB,valueB) {
+  if(!activePromptTrace) return;
+  const report=semanticOverlap(systemA,valueA,systemB,valueB);
+  if(report.duplicatedTerms.length) {
+    activePromptTrace.overlaps.push(report);
+    console.log("[semantic overlap report]");
+    console.log(JSON.stringify(report,null,2));
+  }
+}
+
+function recordSlotOnlyDiagnostics(details) {
+  if(!activePromptTrace) return;
+  activePromptTrace.slotOnlyDiagnostics.push(details);
+  console.log("[slot-only diagnostics]");
+  console.log(JSON.stringify(details,null,2));
+}
+
+function logPromptPipelineReport(finalPrompts={}) {
+  if(!activePromptTrace) return;
+  const stages=activePromptTrace.stages;
+  const totalIntermediateChars=stages.reduce((sum,stage)=>sum+stage.outputChars,0);
+  const finalPromptChars=traceChars(finalPrompts);
+  const compressionStage=[...stages].reverse().find(stage=>/compressStage2Assembly/.test(stage.stage));
+  const largestBeforeCompression=[...stages]
+    .filter(stage=>!/compressStage2Assembly/.test(stage.stage))
+    .reduce((max,stage)=>Math.max(max,stage.outputChars),0);
+  const compressionRatio=compressionStage
+    ? Number((compressionStage.outputChars/Math.max(largestBeforeCompression,1)).toFixed(2))
+    : 1;
+  const report={
+    totalStages:stages.length,
+    totalIntermediateChars,
+    finalPromptChars,
+    compressionRatio,
+    stageBreakdown:stages,
+  };
+  console.log("[payload growth report]");
+  console.log(JSON.stringify(activePromptTrace.payloadGrowth,null,2));
+  console.log("[prompt pipeline report]");
+  console.log(JSON.stringify(report,null,2));
+  if(activePromptTrace.slotOnlyDiagnostics.length) {
+    console.log("[slot-only diagnostics summary]");
+    console.log(JSON.stringify(activePromptTrace.slotOnlyDiagnostics,null,2));
+  }
+}
 
 function promptIntelligenceEnabled() {
   return process.env.VP_PROMPT_INTELLIGENCE==="1";
@@ -3591,10 +3719,6 @@ function buildStage2Context(factual, shotPlan, promptSlots, promptComponents={},
     ambient_audio:cleanFact(factual?.ambient_audio),
     primary_object:rewriteSlotLanguage(factual?.primary_object,factual),
     hero_element:rewriteSlotLanguage(factual?.hero_element,factual),
-    director_brief:directorBrief,
-    prompt_components:promptComponents,
-    shot_plan:shotPlan,
-    prompt_slots:promptSlots,
   };
   for(const key of Object.keys(compact)) {
     if(compact[key]===""||compact[key]==null) delete compact[key];
@@ -4064,9 +4188,13 @@ function buildPlatformPrompt(field, factual, stylePreset, instructions, generati
   const p=getPreset(stylePreset||"cinematic");
   const style=[p.label,cleanStyleText(p.grade),cleanStyleText(p.pace),cleanStyleText(p.suffix)].filter(Boolean).join(" | ");
   const isVideoPlatform=field!=="keyframe";
-  const socialCameraIntelligence=isVideoPlatform ? safeSocialCameraIntelligence(factual) : {};
+  const socialCameraIntelligence=isVideoPlatform
+    ? traceStage("social camera intelligence",factual,true,()=>safeSocialCameraIntelligence(factual),field)
+    : {};
   const socialCamera=socialCameraIntelligence||{};
-  const creatorIntent=isVideoPlatform ? (deriveCreatorIntentIntelligence(factual)||{}) : {};
+  const creatorIntent=isVideoPlatform
+    ? traceStage("creator intent intelligence",factual,true,()=>deriveCreatorIntentIntelligence(factual)||{},field)
+    : {};
   const stage2Scope={socialCameraIntelligence,socialCamera,creatorIntent};
   if(isVideoPlatform) {
     console.log("[social camera scope trace]");
@@ -4080,16 +4208,16 @@ function buildPlatformPrompt(field, factual, stylePreset, instructions, generati
     console.log("[platform profile]");
     console.log(JSON.stringify({platform:field,profile:platformProfile},null,2));
   }
-  const stage2Facts=stage2FactualContext(factual);
-  const motionFacts=generateImageMotionFacts(factual);
-  const groundedMotion=groundedMotionSummary(factual);
-  const microMotion=buildMicroMotionLayer(factual,generationMode);
+  const stage2Facts=traceStage("stage2FactualContext",factual,true,()=>stage2FactualContext(factual),field);
+  const motionFacts=traceStage("motionFacts",factual,true,()=>generateImageMotionFacts(factual),field);
+  const groundedMotion=traceStage("groundedMotion",factual,true,()=>groundedMotionSummary(factual),field);
+  const microMotion=traceStage("microMotion",{factual,generationMode},true,()=>buildMicroMotionLayer(factual,generationMode),field);
   const ocrContext=ocrTopicContext(factual);
   const speechContext=speechTopicContext(factual);
   const speechConfidence=speechConfidenceContext(factual);
   const speechLanguage=speechLanguageContext(factual);
   const speechApplied=isVideoPlatform&&platformProfile.semantic_focus&&Boolean(speechContext.spoken_topic||speechContext.speaker_intent);
-  const semanticContext=semanticSceneContext(factual);
+  const semanticContext=traceStage("semanticContext",factual,true,()=>semanticSceneContext(factual),field);
   const semanticApplied=isVideoPlatform&&platformProfile.semantic_focus&&Object.values(semanticContext).some(Boolean);
   const reelType=reelTypeContext(factual);
   const reelTypeApplied=isVideoPlatform&&(platformProfile.semantic_focus||platformProfile.commercial_focus||platformProfile.workflow_focus)&&reelType.reel_type&&reelType.reel_type!=="other";
@@ -4103,7 +4231,7 @@ function buildPlatformPrompt(field, factual, stylePreset, instructions, generati
   const screenApplied=isVideoPlatform&&platformProfile.workflow_focus&&Object.values(screen).some(Boolean);
   const workflowDomain=workflowDomainContext(factual);
   const workflowDomainApplied=isVideoPlatform&&platformProfile.workflow_focus&&Boolean(workflowDomain.workflow_domain);
-  const cameraGrammar=generateCameraLanguage(factual,"video");
+  const cameraGrammar=traceStage("generateCameraLanguage",{factual,mediaType:"video"},true,()=>generateCameraLanguage(factual,"video"),field);
   const motionUnknown=motionUnknownFromFacts(factual);
   const stage1CameraMotion=cleanFact(factual?.camera_motion).toLowerCase();
   const cameraStatic=/^(static|none|none visible|not visible|not enough evidence|locked-off|locked off)$/.test(stage1CameraMotion);
@@ -4125,7 +4253,11 @@ function buildPlatformPrompt(field, factual, stylePreset, instructions, generati
   const cameraRule=cameraStatic
     ? "Stage 1 camera_motion is static. Do not generate slider movement, push-in, tracking shot, orbit, or camera drift. Use static camera, locked-off framing, or observational composition."
     : "Only generate camera movement when Stage 1 camera_motion contains actual motion evidence.";
-  const platformTemplate=isVideoPlatform ? buildPlatformPromptTemplate(field,factual,platformProfile,{
+  const platformTemplate=isVideoPlatform ? traceStage("buildPlatformPromptTemplate",{
+    field,
+    factual,
+    platformProfile,
+  },true,()=>buildPlatformPromptTemplate(field,factual,platformProfile,{
     semanticApplied,
     semanticContext,
     objectApplied,
@@ -4136,14 +4268,16 @@ function buildPlatformPrompt(field, factual, stylePreset, instructions, generati
     workflowDomain,
     motionUnknown,
     cameraStatic,
-  }) : null;
+  }),field) : null;
   if(platformTemplate) {
     console.log("[prompt template]");
     console.log(JSON.stringify({platform:field,template:platformTemplate},null,2));
     console.log("[platform writing]");
     console.log(JSON.stringify({platform:field,styleApplied:platformTemplate.writing_rules},null,2));
   }
-  const directorPrompt=platformTemplate ? buildDirectorPrompt(field,factual,platformProfile,platformTemplate) : null;
+  const directorPrompt=platformTemplate
+    ? traceStage("buildDirectorPrompt",{field,factual,platformProfile,platformTemplate},true,()=>buildDirectorPrompt(field,factual,platformProfile,platformTemplate),field)
+    : null;
   if(directorPrompt) {
     console.log("[director prompt]");
     console.log(JSON.stringify({
@@ -4152,13 +4286,13 @@ function buildPlatformPrompt(field, factual, stylePreset, instructions, generati
       words:String(directorPrompt.composition||"").split(/\s+/).filter(Boolean).length,
     },null,2));
   }
-  const shotPlan=isVideoPlatform ? buildShotPlan(factual,cameraGrammar,microMotion) : null;
+  const shotPlan=isVideoPlatform ? traceStage("buildShotPlan",{factual,cameraGrammar,microMotion},true,()=>buildShotPlan(factual,cameraGrammar,microMotion),field) : null;
   const shotPlanOrder=isVideoPlatform ? shotPlanOrderForPlatform(field) : [];
   if(shotPlan) {
     console.log("[shot plan]");
     console.log(JSON.stringify(shotPlan,null,2));
   }
-  const promptSlots=shotPlan ? buildPromptSlots(field,shotPlan,factual,stage2Scope) : null;
+  const promptSlots=shotPlan ? traceStage("buildPromptSlots",{field,shotPlan,factual,stage2Scope},true,()=>buildPromptSlots(field,shotPlan,factual,stage2Scope),field) : null;
   if(promptSlots) {
     console.log("[prompt slots]");
     console.log(JSON.stringify({
@@ -4169,7 +4303,7 @@ function buildPlatformPrompt(field, factual, stylePreset, instructions, generati
     console.log("[slot assembly]");
     console.log(JSON.stringify({platform:field,enforced:true},null,2));
   }
-  const directorBrief=isVideoPlatform ? buildDirectorBrief(factual,cameraGrammar,microMotion,shotPlan,stage2Scope) : null;
+  const directorBrief=isVideoPlatform ? traceStage("buildDirectorBrief",{factual,cameraGrammar,microMotion,shotPlan,stage2Scope},true,()=>buildDirectorBrief(factual,cameraGrammar,microMotion,shotPlan,stage2Scope),field) : null;
   const audioPromptGuidance=isVideoPlatform ? buildAudioPromptGuidance(field,directorBrief) : "";
   if(isVideoPlatform) {
     console.log("[audio prompt integration]");
@@ -4179,13 +4313,30 @@ function buildPlatformPrompt(field, factual, stylePreset, instructions, generati
       audio_type:directorBrief?.audio_type||"none",
     },null,2));
   }
-  const promptComponents=buildPromptComponents(factual);
+  if(isVideoPlatform&&directorBrief) {
+    recordSemanticOverlap("pose_action",factual?.pose_action,"directorBrief.action",directorBrief.action);
+    recordSemanticOverlap("subject_motion",factual?.subject_motion,"directorBrief.action",directorBrief.action);
+    recordSemanticOverlap("creator_intent",creatorIntent.creator_intent,"directorBrief.action",directorBrief.action);
+    recordSemanticOverlap("performance_pattern",creatorIntent.performance_pattern,"directorBrief.action",directorBrief.action);
+    recordSemanticOverlap("generation_intent",directorBrief.generation_intent,"directorBrief.action",directorBrief.action);
+    recordSemanticOverlap("camera_motion",factual?.camera_motion,"directorBrief.camera",directorBrief.camera);
+    recordSemanticOverlap("camera_style",socialCamera.camera_style,"directorBrief.camera",directorBrief.camera);
+    recordSemanticOverlap("camera_relationship",socialCamera.camera_relationship,"directorBrief.camera",directorBrief.camera);
+    recordSemanticOverlap("camera_energy",socialCamera.camera_energy,"directorBrief.camera",directorBrief.camera);
+    recordSemanticOverlap("viewer_perspective",socialCamera.viewer_perspective,"directorBrief.camera",directorBrief.camera);
+    recordSemanticOverlap("cameraGrammar",cameraGrammar,"directorBrief.camera",directorBrief.camera);
+    recordSemanticOverlap("motionFacts",motionFacts,"groundedMotion",groundedMotion);
+    recordSemanticOverlap("motionFacts",motionFacts,"microMotion",microMotion);
+    recordSemanticOverlap("groundedMotion",groundedMotion,"shotPlan",shotPlan);
+    recordSemanticOverlap("microMotion",microMotion,"shotPlan",shotPlan);
+  }
+  const promptComponents=traceStage("buildPromptComponents",factual,true,()=>buildPromptComponents(factual),field);
   const briefComponents=directorBrief ? {...promptComponents,...directorBrief} : promptComponents;
   console.log("[prompt components]");
   console.log(JSON.stringify(briefComponents,null,2));
   const profileAssembly=assemblePromptFromProfile(field,promptProfile,briefComponents);
-  const platformWriterOutput=writePlatformStyle(field,promptProfile,briefComponents,profileAssembly,directorBrief);
-  const compactContext=buildStage2Context(factual,shotPlan,promptSlots,{...briefComponents,profile_assembly:profileAssembly,platform_writer:platformWriterOutput},directorBrief,stage2Scope);
+  const platformWriterOutput=traceStage("writePlatformStyle",{field,promptProfile,briefComponents,profileAssembly,directorBrief},true,()=>writePlatformStyle(field,promptProfile,briefComponents,profileAssembly,directorBrief),field);
+  const compactContext=traceStage("buildStage2Context",{factual,shotPlan,promptSlots,briefComponents,directorBrief,stage2Scope},true,()=>buildStage2Context(factual,shotPlan,promptSlots,{...briefComponents,profile_assembly:profileAssembly,platform_writer:platformWriterOutput},directorBrief,stage2Scope),field);
   const speechLanguagePromptValue=cleanFact(compactContext.speech_language);
   const speechLanguageSection=speechLanguagePromptValue
     ? JSON.stringify({speech_language:speechLanguagePromptValue})
@@ -4284,7 +4435,7 @@ Return ONLY valid JSON: {"${field}":"${targetWords}."}`;
     "STYLE", style,
     "PLATFORM DIRECTIONS", instructions,
   ].join("\n").length+3600;
-  const compactPrompt=compressStage2Assembly({
+  const compactPrompt=traceStage("compressStage2Assembly",{
     field,
     compactTemplate,
     promptProfile,
@@ -4299,7 +4450,22 @@ Return ONLY valid JSON: {"${field}":"${targetWords}."}`;
     speechLanguageSection,
     targetWords,
     legacyLengthEstimate,
-  });
+  },true,()=>compressStage2Assembly({
+    field,
+    compactTemplate,
+    promptProfile,
+    referencePattern,
+    directorBrief,
+    audioPromptGuidance,
+    compactDirector,
+    shotPlanOrder,
+    shotPlan,
+    promptSlots,
+    compactContext,
+    speechLanguageSection,
+    targetWords,
+    legacyLengthEstimate,
+  }),field);
   let finalPrompt=safePromptPart(slotOnlyMode ? slotOnlyPrompt : compactPrompt,"finalStage2Prompt");
   if(!finalPrompt) {
     finalPrompt=`Generate JSON only: {"${field}":"${targetWords}."}`;
@@ -4310,6 +4476,7 @@ Return ONLY valid JSON: {"${field}":"${targetWords}."}`;
       platform:field,
     },null,2));
   }
+  recordPromptStage("finalStage2Prompt",slotOnlyMode ? slotOnlyPrompt : compactPrompt,finalPrompt,{platform:field,enabled:true});
   const assemblyStatus=inspectStage2Assembly(finalPrompt);
   console.log("[stage2 active modules]");
   console.log(JSON.stringify({
@@ -4338,6 +4505,20 @@ Return ONLY valid JSON: {"${field}":"${targetWords}."}`;
     promptLength:finalPrompt.length,
     ...(slotOnlyMode ? {} : {reminder:"slot-only experiment inactive"}),
   },null,2));
+  recordSlotOnlyDiagnostics({
+    enabled:slotOnlyMode,
+    platform:field,
+    stagesSkipped:slotOnlyMode ? [
+      "COMPACT_CONTEXT",
+      "GROUNDING_RULES",
+      "legacy generation instructions",
+      "confidence context",
+      "workflow context",
+      "semantic context",
+    ] : [],
+    promptChars:slotOnlyMode ? slotOnlyPrompt.length : compactPrompt.length,
+    finalPromptChars:finalPrompt.length,
+  });
   if(field==="veo") {
     const oldVeoPrompt=buildLegacyPlatformPrompt(field,factual,stylePreset,instructions,generationMode);
     console.log("[veo prompt comparison]");
@@ -4420,6 +4601,7 @@ async function generatePlatformField({field,label,systemPrompt,prompt,dbg}) {
       validateCreatorPerformancePrompt(field,value,promptContext.brief||{},promptContext.factual||{});
       validateSocialVideoAuthenticity(value,promptContext.factual||{});
       validateCreatorPerformanceRecreation(value,promptContext.factual||{},promptContext.brief||{});
+      recordPromptStage("generatedPlatformPrompt",activePrompt,value,{platform:field,durationMs:Date.now()-started,enabled:true});
       promptAssemblyContextCache.delete(field);
       if(value.length<20) throw new Error(`${field}: empty or too short`);
       console.log(`[${label} generation ms] ${Date.now()-started}`);
@@ -6795,10 +6977,12 @@ async function generateJSONWithRetry({prompt,sysPrompt,images,mediaType,stage,db
 }
 
 async function runAnalysis(images,mediaType,dbg,stylePreset,audioPayload={}) {
+  startPromptTrace({mediaType,stylePreset:stylePreset||"cinematic"});
   dbg.log("analysis","Two-stage grounded multimodal",{images:images.length,mediaType,preset:stylePreset||"cinematic"});
+  const stage1Prompt=traceStage("buildStage1Prompt",{mediaType},true,()=>buildStage1Prompt(mediaType));
 
   const stage1Facts = await generateJSONWithRetry({
-    prompt:buildStage1Prompt(mediaType),
+    prompt:stage1Prompt,
     sysPrompt:S1_SYSTEM,
     images,
     mediaType,
@@ -6807,7 +6991,12 @@ async function runAnalysis(images,mediaType,dbg,stylePreset,audioPayload={}) {
     validate:validateFactualAnalysis,
     errorTitle:"Factual analysis incomplete",
   });
-  if(stage1Facts.error) return stage1Facts;
+  if(stage1Facts.error) {
+    logPromptPipelineReport(stage1Facts);
+    activePromptTrace=null;
+    return stage1Facts;
+  }
+  recordPromptStage("Stage1Facts",stage1Prompt,stage1Facts,{enabled:true});
   const speechAnalysis=await analyzeSpeech(images,mediaType,dbg,audioPayload);
   stage1Facts.speech_present=speechAnalysis.speech_present;
   stage1Facts.transcript=speechAnalysis.transcript||"";
@@ -6993,13 +7182,20 @@ async function runAnalysis(images,mediaType,dbg,stylePreset,audioPayload={}) {
   const stage2Prompts = mediaType==="video"
     ? await generateVideoPromptsWithRetry(stage1Facts,stylePreset,mediaType,dbg)
     : await generateImagePromptsWithRetry(stage1Facts,stylePreset,mediaType,dbg);
-  if(stage2Prompts.error) return stage2Prompts;
+  if(stage2Prompts.error) {
+    logPromptPipelineReport(stage2Prompts);
+    activePromptTrace=null;
+    return stage2Prompts;
+  }
+  recordPromptStage("Stage2Prompts",stage1Facts,stage2Prompts,{enabled:true});
 
   const parsed = { factual:stage1Facts, prompts:stage2Prompts };
 
   // Validate prompt completeness
   const issues = validatePrompts(parsed, mediaType);
   if (issues.length > 0) {
+    logPromptPipelineReport(parsed);
+    activePromptTrace=null;
     return diagnostic("Prompt generation incomplete", issues.join("; "), dbg, mediaType);
   } else {
     dbg.log("validate","All prompts complete");
@@ -7021,6 +7217,8 @@ async function runAnalysis(images,mediaType,dbg,stylePreset,audioPayload={}) {
   };
 
   dbg.log("done","Complete",{ms:dbg.summary().totalMs});
+  logPromptPipelineReport(prompts);
+  activePromptTrace=null;
   return {
     factual,
     prompts,
@@ -7077,6 +7275,12 @@ async function analyzeImageFramesBase64(imageFrames,mediaType,stylePreset,audioP
   console.log(frames.length);
   console.log("[frame timestamps]");
   console.log(JSON.stringify(frames.map(f=>f?.timestamp).filter(t=>t!==undefined)));
+  console.log("[frame structure]");
+  console.log(JSON.stringify(frames.map((frame,index)=>({
+    index,
+    type:typeof frame,
+    keys:frame&&typeof frame==="object"&&!Array.isArray(frame) ? Object.keys(frame) : [],
+  })),null,2));
   dbg.log("init","imageFrames",{
     count:frames.length,
     timestamps:frames.map(f=>f?.timestamp).filter(t=>t!==undefined),
@@ -7086,10 +7290,11 @@ async function analyzeImageFramesBase64(imageFrames,mediaType,stylePreset,audioP
 
   const loaded=[];
   for(let i=0;i<frames.length;i++) {
-    const frame=frames[i]||{};
-    const base64=frame.base64;
+    const rawFrame=frames[i];
+    const frame=typeof rawFrame==="string" ? {base64:rawFrame,timestamp:i} : (rawFrame||{});
+    const base64=String(frame.base64||frame.image||frame.imageBase64||frame.data||frame.dataUrl||"").replace(/^data:[^,]+,/i,"").trim();
     if(!base64||base64.length<500) {
-      dbg.err("validate",`Frame ${i}`,new Error("base64 too small - frame capture failed"));
+      dbg.err("validate",`Frame ${i}`,new Error("base64 too small - frame capture failed or missing base64/image field"));
       continue;
     }
     const validation=validateImageData(base64,dbg);
