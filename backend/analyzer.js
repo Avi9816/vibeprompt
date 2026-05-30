@@ -2429,7 +2429,7 @@ function compactJson(value, maxChars=900) {
 }
 
 function compactProfileForStage2(profile, template, pattern) {
-  return {
+  const fullProfile={
     structure:profile?.preferred_structure||template?.order||[],
     style:template?.style||"",
     emphasis:profile?.emphasis_scores||{},
@@ -2446,6 +2446,32 @@ function compactProfileForStage2(profile, template, pattern) {
       temporalFrequency:pattern.temporalFrequency,
     } : null,
   };
+  const enabled=process.env.VP_COMPACT_PLATFORM_METADATA==="1";
+  const topEmphasis=Object.fromEntries(
+    Object.entries(fullProfile.emphasis||{})
+      .sort((a,b)=>Number(b[1]||0)-Number(a[1]||0))
+      .slice(0,3)
+  );
+  const compactedProfile={
+    structure:fullProfile.structure,
+    emphasis:topEmphasis,
+    ideal_length:{
+      minimum_words:fullProfile.ideal_length?.minimum_words,
+      maximum_words:fullProfile.ideal_length?.maximum_words,
+    },
+    avoid:(fullProfile.avoid||[]).slice(0,3),
+  };
+  const result=enabled ? compactedProfile : fullProfile;
+  const originalChars=compactJson(fullProfile,900).length;
+  const compressedChars=compactJson(result,900).length;
+  console.log("[platform metadata experiment]");
+  console.log(JSON.stringify({
+    enabled,
+    originalChars,
+    compressedChars,
+    charsSaved:Math.max(0,originalChars-compressedChars),
+  },null,2));
+  return result;
 }
 
 function platformNativeDirectives(platform) {
