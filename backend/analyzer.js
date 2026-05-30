@@ -2474,6 +2474,18 @@ function compactProfileForStage2(profile, template, pattern) {
   return result;
 }
 
+function compactDirectorIntentPhrase(value, maxWords=14) {
+  const text=cleanFact(value);
+  if(!text) return "";
+  const firstPhrase=text
+    .split(/[.;|]/)
+    .map(part=>part.trim())
+    .find(usableFact)||text;
+  const words=firstPhrase.split(/\s+/).filter(Boolean);
+  if(words.length<=maxWords) return firstPhrase;
+  return words.slice(0,maxWords).join(" ");
+}
+
 function platformNativeDirectives(platform) {
   const key=String(platform||"").toLowerCase();
   if(key==="runway") return "RUNWAY style: concise production direction. Shot type first, composition second, camera behavior third. Realistic camera and motion language. Avoid long atmosphere paragraphs.";
@@ -2531,6 +2543,28 @@ function compressStage2Assembly({
     conversation_presence:directorBrief?.conversation_presence,
     microphone_importance:directorBrief?.microphone_importance,
   };
+  const directorIntentExperimentEnabled=process.env.VP_COMPACT_DIRECTOR_INTENT==="1";
+  const originalGenerationIntent=cleanFact(brief.generation_intent);
+  const originalVisualGoal=cleanFact(brief.visual_goal);
+  const compressedGenerationIntent=directorIntentExperimentEnabled
+    ? compactDirectorIntentPhrase(originalGenerationIntent)
+    : originalGenerationIntent;
+  const compressedVisualGoal=directorIntentExperimentEnabled
+    ? compactDirectorIntentPhrase(originalVisualGoal)
+    : originalVisualGoal;
+  if(directorIntentExperimentEnabled) {
+    brief.generation_intent=compressedGenerationIntent;
+    brief.visual_goal=compressedVisualGoal;
+  }
+  console.log("[director intent experiment]");
+  console.log(JSON.stringify({
+    enabled:directorIntentExperimentEnabled,
+    originalIntentChars:originalGenerationIntent.length,
+    compressedIntentChars:compressedGenerationIntent.length,
+    originalVisualGoalChars:originalVisualGoal.length,
+    compressedVisualGoalChars:compressedVisualGoal.length,
+    charsSaved:Math.max(0,(originalGenerationIntent.length+originalVisualGoal.length)-(compressedGenerationIntent.length+compressedVisualGoal.length)),
+  },null,2));
   for(const key of Object.keys(brief)) if(!usableFact(brief[key])) delete brief[key];
   const minimalContext={
     content_type:compactContext?.content_type,
